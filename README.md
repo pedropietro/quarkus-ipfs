@@ -4,17 +4,9 @@ Quarkus IPFS embeds a Peergos Nabu node in a Quarkus application. Inject CDI ser
 
 ## Quick start
 
-Use Java 21 or newer and a Maven application with the Quarkus 4.0.0 BOM. The release coordinates are `io.github.pedropietro:quarkus-ipfs:0.1.0`. Once the version is available in Maven Central, add the dependency directly. To try the same version from a source checkout, install it in your local Maven repository first.
+Use Java 21 or newer and a Maven application with the Quarkus 4.0.0 BOM. Quarkus IPFS 0.1.0 is available from Maven Central. [Quarkus IPFS 0.1.0 on Maven Central](https://central.sonatype.com/artifact/io.github.pedropietro/quarkus-ipfs/0.1.0)
 
-```sh
-git clone https://github.com/pedropietro/quarkus-ipfs.git
-cd quarkus-ipfs
-./mvnw -B -pl deployment -am install -DskipTests
-```
-
-On Windows, use `.\mvnw.cmd` in place of `./mvnw`. The build downloads and verifies the pinned Nabu source archive. Maven resolves some networking dependencies from JitPack.
-
-In a Quarkus REST application, add this dependency to `pom.xml` under `<dependencies>`.
+Add this dependency under `<dependencies>` in your application's `pom.xml`.
 
 ```xml
 <dependency>
@@ -24,7 +16,7 @@ In a Quarkus REST application, add this dependency to `pom.xml` under `<dependen
 </dependency>
 ```
 
-The example uses `io.quarkus:quarkus-rest`. Add it if the application does not already use Quarkus REST. Ensure the application can resolve dependencies from Maven Central and JitPack. If your repository policy ignores repositories declared by dependencies, add the following to your application's existing `<repositories>` section, or create that section.
+The example uses `io.quarkus:quarkus-rest`. Add it if the application does not already use Quarkus REST. The extension POM declares JitPack for the libp2p dependencies. If your repository policy ignores repositories declared by dependencies, add the following to your application's existing `<repositories>` section, or create that section.
 
 ```xml
 <repository>
@@ -83,6 +75,18 @@ curl -fsS "http://localhost:8080/blocks/$cid"
 ```
 
 The response is `hello ipfs`. The default `RAM` store lives for one application run. To persist blocks, set `quarkus.ipfs.storage-type=FILE` and `quarkus.ipfs.storage-path` to a dedicated directory that the application can write to. [Storage, Dev Services, and network configuration](docs/modules/ROOT/pages/index.adoc)
+
+## Install from a source checkout
+
+To install a local build from the source checkout, use the Maven Wrapper.
+
+```sh
+git clone https://github.com/pedropietro/quarkus-ipfs.git
+cd quarkus-ipfs
+./mvnw -B -pl deployment -am install -DskipTests
+```
+
+On Windows, use `.\mvnw.cmd` in place of `./mvnw`. The build downloads and verifies the pinned Nabu source archive.
 
 ## Verify the extension
 
