@@ -36,7 +36,7 @@ endif::add-copy-button-to-config-props[]
 
 [.description]
 --
-Whether to register an IPFS readiness health check at `/q/health/ready`. Requires `quarkus-smallrye-health` on the classpath.
+Whether to register an IPFS readiness health check at `/q/health/ready`. Requires the IPFS extension to be enabled and SmallRye Health to be installed. The check only inspects the local node.
 
 
 ifdef::add-copy-button-to-env-var[]

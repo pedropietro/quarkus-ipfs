@@ -1,27 +1,23 @@
 package io.quarkiverse.ipfs.runtime.health;
 
-import java.util.List;
+import java.util.stream.Collectors;
 
-import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 import org.eclipse.microprofile.health.HealthCheck;
 import org.eclipse.microprofile.health.HealthCheckResponse;
 import org.eclipse.microprofile.health.Readiness;
+import org.jboss.logging.Logger;
 import org.peergos.EmbeddedIpfs;
 
 import io.libp2p.core.multiformats.Multiaddr;
-import io.quarkus.arc.properties.IfBuildProperty;
 
-/**
- * Readiness health check for the embedded IPFS node.
- * Reports UP when the node is running and listening on at least one address.
- * Registered conditionally via {@code quarkus.ipfs.health-enabled=true}.
- */
-@IfBuildProperty(name = "quarkus.ipfs.enabled", stringValue = "true", enableIfMissing = true)
+/** Local readiness of the embedded node. Registered by the SmallRye Health build step. */
 @Readiness
-@ApplicationScoped
 public class IpfsHealthCheck implements HealthCheck {
+
+    private static final Logger LOG = Logger.getLogger(IpfsHealthCheck.class);
+    private static final String NAME = "ipfs";
 
     @Inject
     EmbeddedIpfs ipfs;
@@ -29,29 +25,18 @@ public class IpfsHealthCheck implements HealthCheck {
     @Override
     public HealthCheckResponse call() {
         try {
-            List<Multiaddr> addrs = ipfs.node.listenAddresses();
-            if (addrs != null && !addrs.isEmpty()) {
-                return HealthCheckResponse.builder()
-                        .name("ipfs")
-                        .up()
-                        .withData("peerId", ipfs.node.getPeerId().toBase58())
-                        .withData("addresses", addrs.stream()
-                                .map(Multiaddr::toString)
-                                .reduce((a, b) -> a + ", " + b)
-                                .orElse(""))
-                        .build();
+            var addresses = ipfs.node.listenAddresses();
+            if (addresses.isEmpty()) {
+                return HealthCheckResponse.named(NAME).down().withData("reason", "no-listen-addresses").build();
             }
-            return HealthCheckResponse.builder()
-                    .name("ipfs")
-                    .down()
-                    .withData("reason", "Node has no listen addresses")
+
+            return HealthCheckResponse.named(NAME).up()
+                    .withData("peerId", ipfs.node.getPeerId().toBase58())
+                    .withData("addresses", addresses.stream().map(Multiaddr::toString).collect(Collectors.joining(", ")))
                     .build();
-        } catch (Exception e) {
-            return HealthCheckResponse.builder()
-                    .name("ipfs")
-                    .down()
-                    .withData("error", e.getMessage())
-                    .build();
+        } catch (RuntimeException failure) {
+            LOG.debug("Could not inspect local IPFS readiness", failure);
+            return HealthCheckResponse.named(NAME).down().withData("reason", "node-inspection-failed").build();
         }
     }
 }

@@ -13,6 +13,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -20,6 +21,7 @@ import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
+import io.quarkus.maven.dependency.Dependency;
 import io.quarkus.test.QuarkusDevModeTest;
 
 class IpfsDevModeTest {
@@ -34,6 +36,8 @@ class IpfsDevModeTest {
 
     @RegisterExtension
     static final QuarkusDevModeTest DEV = new QuarkusDevModeTest()
+            .setForcedDependencies(List.of(
+                    Dependency.of("io.quarkus", "quarkus-smallrye-health", System.getProperty("ipfs.test.quarkus-version"))))
             .withApplicationRoot(jar -> jar.addAsResource(new StringAsset("""
                     quarkus.http.port=%d
                     quarkus.ipfs.devservices.port=%d

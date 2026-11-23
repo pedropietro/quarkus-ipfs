@@ -18,7 +18,8 @@ public interface IpfsBuildTimeConfig {
 
     /**
      * Whether to register an IPFS readiness health check at {@code /q/health/ready}.
-     * Requires {@code quarkus-smallrye-health} on the classpath.
+     * Requires the IPFS extension to be enabled and SmallRye Health to be installed.
+     * The check only inspects the local node.
      */
     @WithDefault("true")
     boolean healthEnabled();
