@@ -1,0 +1,93 @@
+name: Publish to Maven Central
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maven-central-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/build.yml
+
+  publish:
+    name: Publish and verify Maven Central artifacts
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify release tag
+        id: release
+        run: |
+          set -euo pipefail
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Expected a release tag in the form vMAJOR.MINOR.PATCH."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::The release tag must point to a commit reachable from main."
+            exit 1
+          fi
+          version="${GITHUB_REF_NAME#v}"
+          pom_version=$(python3 -c 'import xml.etree.ElementTree as ET; print(ET.parse("pom.xml").getroot().findtext("{*}version"))')
+          if [[ "$version" != "$pom_version" ]]; then
+            echo "::error::Release tag $GITHUB_REF_NAME does not match Maven version $pom_version."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Java and Maven settings
+        uses: actions/setup-java@v6.3.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          server-id: central
+          server-username: MAVEN_CENTRAL_USERNAME
+          server-password: MAVEN_CENTRAL_PASSWORD
+
+      - name: Sign and publish the release
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          MAVEN_GPG_KEY: ${{ secrets.MAVEN_GPG_KEY }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          for secret in MAVEN_CENTRAL_USERNAME MAVEN_CENTRAL_PASSWORD MAVEN_GPG_KEY; do
+            if [[ -z "${!secret}" ]]; then
+              echo "::error::Configure the $secret GitHub Actions secret."
+              exit 1
+            fi
+          done
+          bash ./mvnw -B -ntp -Pcentral-release -DperformRelease=true -DskipTests \
+            -Dgpg.signer=bc -Dgpg.useAgent=false \
+            -Dcentral.release.skip-upload=false -Dcentral.release.auto-publish=true \
+            -Dcentral.release.wait-until=published clean deploy
+
+      - name: Resolve the release with an empty Maven cache
+        working-directory: ${{ runner.temp }}
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          cache=$(mktemp -d)
+          settings="$cache/settings.xml"
+          printf '<settings/>\n' > "$settings"
+          bash "$GITHUB_WORKSPACE/mvnw" -B -ntp -s "$settings" -gs "$settings" \
+            "-Dmaven.repo.local=$cache/repository" \
+            org.apache.maven.plugins:maven-dependency-plugin:3.9.0:get \
+            "-Dartifact=io.github.pedropietro:quarkus-ipfs:$RELEASE_VERSION"
