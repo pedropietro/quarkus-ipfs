@@ -1,0 +1,77 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - "main"
+    paths-ignore:
+      - '.gitignore'
+      - 'CODEOWNERS'
+      - 'LICENSE'
+      - '*.md'
+      - '*.adoc'
+      - '*.txt'
+      - '.all-contributorsrc'
+      - '.github/project.yml'
+  pull_request:
+    paths-ignore:
+      - '.gitignore'
+      - 'CODEOWNERS'
+      - 'LICENSE'
+      - '*.md'
+      - '*.adoc'
+      - '*.txt'
+      - '.all-contributorsrc'
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }} (Java ${{ matrix.java }})
+    strategy:
+      fail-fast: false
+      matrix:
+#        os: [windows-latest, macos-latest, ubuntu-latest]
+        os: [ubuntu-latest]
+        java: ['25.0.5+1.2', '21']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Prepare git
+        run: git config --global core.autocrlf false
+        if: startsWith(matrix.os, 'windows')
+
+      - uses: actions/checkout@v7.0.1
+      - name: Set up Temurin
+        uses: actions/setup-java@v6.3.0
+        with:
+          distribution: temurin
+          # setup-java represents the JDK 25 patch and build as 25.0.5+1.2.
+          java-version: ${{ matrix.java }}
+          cache: 'maven'
+
+      - name: Show build tool versions
+        run: bash ./mvnw --version
+
+      - name: Build with Maven
+        run: bash ./mvnw -B clean verify -Dno-format -DskipITs=false
+
+      - name: Build with Maven (Native)
+        if: matrix.java == '25.0.5+1.2'
+        run: |
+          builder_image=quay.io/quarkus/ubi10-quarkus-mandrel-builder-image:jdk-25
+          docker pull "$builder_image"
+          builder_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$builder_image")
+          echo "Native builder image: $builder_digest"
+          bash ./mvnw -B -pl deployment,integration-tests -am clean verify -Dno-format -Dnative \
+            -Dquarkus.native.container-build=true "-Dquarkus.native.builder-image=$builder_digest" \
+            -Dnative.surefire.skip=true

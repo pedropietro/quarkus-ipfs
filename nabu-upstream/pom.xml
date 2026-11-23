@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.quarkiverse.ipfs</groupId>
+        <artifactId>quarkus-ipfs-parent</artifactId>
+        <version>999-SNAPSHOT</version>
+    </parent>
+    <artifactId>quarkus-ipfs-nabu</artifactId>
+    <name>Quarkus IPFS - Nabu</name>
+    <description>Nabu library built from the pinned Peergos sources for Quarkus IPFS</description>
+
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://github.com/Peergos/nabu/blob/d2454c9af6e05e15d703ef394687857aab2432a9/LICENSE</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <properties>
+        <nabu.revision>d2454c9af6e05e15d703ef394687857aab2432a9</nabu.revision>
+        <nabu.source.sha256>65fa277b46ffdcdef39496d15ae913aaf0c3fa7175a1cedf47fd4df9cfb82c12</nabu.source.sha256>
+        <nabu.archive>${project.build.directory}/upstream/nabu-${nabu.revision}.zip</nabu.archive>
+        <nabu.sourceDirectory>${project.build.directory}/upstream/nabu-${nabu.revision}</nabu.sourceDirectory>
+        <format.skip>true</format.skip>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.jetbrains.kotlin</groupId>
+            <artifactId>kotlin-stdlib</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>redis.clients</groupId>
+            <artifactId>jedis</artifactId>
+            <version>4.3.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.multiformats</groupId>
+            <artifactId>java-multiaddr</artifactId>
+            <version>1.5.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.multiformats</groupId>
+            <artifactId>java-multibase</artifactId>
+            <!-- Required by java-multiaddr 1.5.0 via java-multihash. libp2p still declares v1.1.1. -->
+            <version>1.3.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.peergos</groupId>
+            <artifactId>jvm-libp2p</artifactId>
+            <version>0.21.19</version>
+            <exclusions>
+                <exclusion>
+                    <!-- The fork defines the same QUIC classes as the Netty codec used by Vert.x. -->
+                    <groupId>com.github.Peergos</groupId>
+                    <artifactId>netty</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk18on</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpkix-jdk18on</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-tcnative-boringssl-static</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-codec-http2</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-codec-protobuf</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-codec-classes-quic</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-collections4</artifactId>
+            <version>4.1</version>
+        </dependency>
+        <dependency>
+            <groupId>dnsjava</groupId>
+            <artifactId>dnsjava</artifactId>
+            <version>3.6.5</version>
+        </dependency>
+        <dependency>
+            <groupId>com.offbynull.portmapper</groupId>
+            <artifactId>portmapper</artifactId>
+            <version>2.0.6</version>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.prometheus</groupId>
+            <artifactId>simpleclient</artifactId>
+            <version>0.16.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.prometheus</groupId>
+            <artifactId>simpleclient_common</artifactId>
+            <version>0.16.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.prometheus</groupId>
+            <artifactId>simpleclient_httpserver</artifactId>
+            <version>0.16.0</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <sourceDirectory>${nabu.sourceDirectory}/src/main/java</sourceDirectory>
+        <resources>
+            <resource>
+                <directory>${nabu.sourceDirectory}/src/main/resources</directory>
+            </resource>
+            <resource>
+                <directory>${nabu.sourceDirectory}</directory>
+                <targetPath>META-INF</targetPath>
+                <includes>
+                    <include>LICENSE</include>
+                </includes>
+            </resource>
+        </resources>
+        <plugins>
+            <plugin>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.2.0</version>
+                <executions>
+                    <execution>
+                        <id>extract-nabu-source</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target xmlns:unless="ant:unless">
+                                <mkdir dir="${project.build.directory}/upstream"/>
+                                <condition property="nabu.archive.verified">
+                                    <and>
+                                        <available file="${nabu.archive}"/>
+                                        <checksum file="${nabu.archive}" algorithm="SHA-256" property="${nabu.source.sha256}"/>
+                                    </and>
+                                </condition>
+                                <get src="https://codeload.github.com/Peergos/nabu/zip/${nabu.revision}"
+                                     dest="${nabu.archive}" retries="3" maxtime="120"
+                                     unless:set="nabu.archive.verified"/>
+                                <fail message="SHA-256 mismatch for the pinned Nabu source archive">
+                                    <condition>
+                                        <not>
+                                            <checksum file="${nabu.archive}" algorithm="SHA-256" property="${nabu.source.sha256}"/>
+                                        </not>
+                                    </condition>
+                                </fail>
+                                <unzip src="${nabu.archive}" dest="${project.build.directory}/upstream">
+                                    <patternset>
+                                        <include name="nabu-${nabu.revision}/LICENSE"/>
+                                        <include name="nabu-${nabu.revision}/src/main/java/**"/>
+                                        <include name="nabu-${nabu.revision}/src/main/resources/**"/>
+                                    </patternset>
+                                </unzip>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Nabu-Revision>${nabu.revision}</Nabu-Revision>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

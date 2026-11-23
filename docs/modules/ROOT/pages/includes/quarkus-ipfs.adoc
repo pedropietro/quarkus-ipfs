@@ -1,0 +1,307 @@
+[.configuration-legend]
+icon:lock[title=Fixed at build time] Configuration property fixed at build time - All other configuration properties are overridable at runtime
+[.configuration-reference.searchable, cols="80,.^10,.^10"]
+|===
+
+h|[.header-title]##Configuration property##
+h|Type
+h|Default
+
+a|icon:lock[title=Fixed at build time] [[quarkus-ipfs_quarkus-ipfs-enabled]] [.property-path]##link:#quarkus-ipfs_quarkus-ipfs-enabled[`+++quarkus.ipfs.enabled+++`]##
+ifdef::add-copy-button-to-config-props[]
+config_property_copy_button:+++quarkus.ipfs.enabled+++[]
+endif::add-copy-button-to-config-props[]
+
+
+[.description]
+--
+Whether the IPFS extension is enabled. When false, no EmbeddedIpfs CDI bean is produced.
+
+
+ifdef::add-copy-button-to-env-var[]
+Environment variable: env_var_with_copy_button:+++QUARKUS_IPFS_ENABLED+++[]
+endif::add-copy-button-to-env-var[]
+ifndef::add-copy-button-to-env-var[]
+Environment variable: `+++QUARKUS_IPFS_ENABLED+++`
+endif::add-copy-button-to-env-var[]
+--
+|boolean
+|`+++true+++`
+
+a|icon:lock[title=Fixed at build time] [[quarkus-ipfs_quarkus-ipfs-health-enabled]] [.property-path]##link:#quarkus-ipfs_quarkus-ipfs-health-enabled[`+++quarkus.ipfs.health-enabled+++`]##
+ifdef::add-copy-button-to-config-props[]
+config_property_copy_button:+++quarkus.ipfs.health-enabled+++[]
+endif::add-copy-button-to-config-props[]
+
+
+[.description]
+--
+Whether to register an IPFS readiness health check at `/q/health/ready`. Requires `quarkus-smallrye-health` on the classpath.
+
+
+ifdef::add-copy-button-to-env-var[]
+Environment variable: env_var_with_copy_button:+++QUARKUS_IPFS_HEALTH_ENABLED+++[]
+endif::add-copy-button-to-env-var[]
+ifndef::add-copy-button-to-env-var[]
+Environment variable: `+++QUARKUS_IPFS_HEALTH_ENABLED+++`
+endif::add-copy-button-to-env-var[]
+--
+|boolean
+|`+++true+++`
+
+a|icon:lock[title=Fixed at build time] [[quarkus-ipfs_quarkus-ipfs-metrics-enabled]] [.property-path]##link:#quarkus-ipfs_quarkus-ipfs-metrics-enabled[`+++quarkus.ipfs.metrics-enabled+++`]##
+ifdef::add-copy-button-to-config-props[]
+config_property_copy_button:+++quarkus.ipfs.metrics-enabled+++[]
+endif::add-copy-button-to-config-props[]
+
+
+[.description]
+--
+Whether to register IPFS Micrometer gauges and counters. Requires `quarkus-micrometer` on the classpath.
+
+
+ifdef::add-copy-button-to-env-var[]
+Environment variable: env_var_with_copy_button:+++QUARKUS_IPFS_METRICS_ENABLED+++[]
+endif::add-copy-button-to-env-var[]
+ifndef::add-copy-button-to-env-var[]
+Environment variable: `+++QUARKUS_IPFS_METRICS_ENABLED+++`
+endif::add-copy-button-to-env-var[]
+--
+|boolean
+|`+++true+++`
+
+a|icon:lock[title=Fixed at build time] [[quarkus-ipfs_quarkus-ipfs-storage-type]] [.property-path]##link:#quarkus-ipfs_quarkus-ipfs-storage-type[`+++quarkus.ipfs.storage-type+++`]##
+ifdef::add-copy-button-to-config-props[]
+config_property_copy_button:+++quarkus.ipfs.storage-type+++[]
+endif::add-copy-button-to-config-props[]
+
+
+[.description]
+--
+Block storage backend to use. `RAM` keeps all blocks in memory (default, suitable for testing). `FILE` persists blocks to the path specified by `quarkus.ipfs.storage-path`.
+
+
+ifdef::add-copy-button-to-env-var[]
+Environment variable: env_var_with_copy_button:+++QUARKUS_IPFS_STORAGE_TYPE+++[]
+endif::add-copy-button-to-env-var[]
+ifndef::add-copy-button-to-env-var[]
+Environment variable: `+++QUARKUS_IPFS_STORAGE_TYPE+++`
+endif::add-copy-button-to-env-var[]
+--
+a|`ram`, `file`
+|`+++ram+++`
+
+a|icon:lock[title=Fixed at build time] [[quarkus-ipfs_quarkus-ipfs-devservices-enabled]] [.property-path]##link:#quarkus-ipfs_quarkus-ipfs-devservices-enabled[`+++quarkus.ipfs.devservices.enabled+++`]##
+ifdef::add-copy-button-to-config-props[]
+config_property_copy_button:+++quarkus.ipfs.devservices.enabled+++[]
+endif::add-copy-button-to-config-props[]
+
+
+[.description]
+--
+Whether Dev Services are enabled. When enabled, an in-process IPFS node is automatically started in dev/test mode so that no manual configuration is required.
+
+
+ifdef::add-copy-button-to-env-var[]
+Environment variable: env_var_with_copy_button:+++QUARKUS_IPFS_DEVSERVICES_ENABLED+++[]
+endif::add-copy-button-to-env-var[]
+ifndef::add-copy-button-to-env-var[]
+Environment variable: `+++QUARKUS_IPFS_DEVSERVICES_ENABLED+++`
+endif::add-copy-button-to-env-var[]
+--
+|boolean
+|`+++true+++`
+
+a|icon:lock[title=Fixed at build time] [[quarkus-ipfs_quarkus-ipfs-devservices-port]] [.property-path]##link:#quarkus-ipfs_quarkus-ipfs-devservices-port[`+++quarkus.ipfs.devservices.port+++`]##
+ifdef::add-copy-button-to-config-props[]
+config_property_copy_button:+++quarkus.ipfs.devservices.port+++[]
+endif::add-copy-button-to-config-props[]
+
+
+[.description]
+--
+TCP port for the Dev Services IPFS node. Use `0` (default) to let the OS assign a random available port.
+
+
+ifdef::add-copy-button-to-env-var[]
+Environment variable: env_var_with_copy_button:+++QUARKUS_IPFS_DEVSERVICES_PORT+++[]
+endif::add-copy-button-to-env-var[]
+ifndef::add-copy-button-to-env-var[]
+Environment variable: `+++QUARKUS_IPFS_DEVSERVICES_PORT+++`
+endif::add-copy-button-to-env-var[]
+--
+|int
+|`+++0+++`
+
+a| [[quarkus-ipfs_quarkus-ipfs-swarm-addresses]] [.property-path]##link:#quarkus-ipfs_quarkus-ipfs-swarm-addresses[`+++quarkus.ipfs.swarm-addresses+++`]##
+ifdef::add-copy-button-to-config-props[]
+config_property_copy_button:+++quarkus.ipfs.swarm-addresses+++[]
+endif::add-copy-button-to-config-props[]
+
+
+[.description]
+--
+Multiaddresses the IPFS node will listen on for peer connections. Example: `/ip4/0.0.0.0/tcp/4001`. Use `/ip4/127.0.0.1/tcp/0` for a random port on loopback (default).
+
+
+ifdef::add-copy-button-to-env-var[]
+Environment variable: env_var_with_copy_button:+++QUARKUS_IPFS_SWARM_ADDRESSES+++[]
+endif::add-copy-button-to-env-var[]
+ifndef::add-copy-button-to-env-var[]
+Environment variable: `+++QUARKUS_IPFS_SWARM_ADDRESSES+++`
+endif::add-copy-button-to-env-var[]
+--
+|list of string
+|`+++/ip4/127.0.0.1/tcp/0+++`
+
+a| [[quarkus-ipfs_quarkus-ipfs-bootstrap-addresses]] [.property-path]##link:#quarkus-ipfs_quarkus-ipfs-bootstrap-addresses[`+++quarkus.ipfs.bootstrap-addresses+++`]##
+ifdef::add-copy-button-to-config-props[]
+config_property_copy_button:+++quarkus.ipfs.bootstrap-addresses+++[]
+endif::add-copy-button-to-config-props[]
+
+
+[.description]
+--
+Multiaddresses of bootstrap peers used to join the IPFS network. When empty the node operates in isolated mode (no DHT bootstrap).
+
+
+ifdef::add-copy-button-to-env-var[]
+Environment variable: env_var_with_copy_button:+++QUARKUS_IPFS_BOOTSTRAP_ADDRESSES+++[]
+endif::add-copy-button-to-env-var[]
+ifndef::add-copy-button-to-env-var[]
+Environment variable: `+++QUARKUS_IPFS_BOOTSTRAP_ADDRESSES+++`
+endif::add-copy-button-to-env-var[]
+--
+|list of string
+|
+
+a| [[quarkus-ipfs_quarkus-ipfs-storage-path]] [.property-path]##link:#quarkus-ipfs_quarkus-ipfs-storage-path[`+++quarkus.ipfs.storage-path+++`]##
+ifdef::add-copy-button-to-config-props[]
+config_property_copy_button:+++quarkus.ipfs.storage-path+++[]
+endif::add-copy-button-to-config-props[]
+
+
+[.description]
+--
+Filesystem path used when `storage-type=FILE`. Ignored when using the default RAM storage.
+
+
+ifdef::add-copy-button-to-env-var[]
+Environment variable: env_var_with_copy_button:+++QUARKUS_IPFS_STORAGE_PATH+++[]
+endif::add-copy-button-to-env-var[]
+ifndef::add-copy-button-to-env-var[]
+Environment variable: `+++QUARKUS_IPFS_STORAGE_PATH+++`
+endif::add-copy-button-to-env-var[]
+--
+|string
+|`+++${user.home}/.ipfs+++`
+
+a| [[quarkus-ipfs_quarkus-ipfs-provide-blocks]] [.property-path]##link:#quarkus-ipfs_quarkus-ipfs-provide-blocks[`+++quarkus.ipfs.provide-blocks+++`]##
+ifdef::add-copy-button-to-config-props[]
+config_property_copy_button:+++quarkus.ipfs.provide-blocks+++[]
+endif::add-copy-button-to-config-props[]
+
+
+[.description]
+--
+Whether to actively provide (announce) blocks to the DHT. Enable only when connected to the public IPFS network.
+
+
+ifdef::add-copy-button-to-env-var[]
+Environment variable: env_var_with_copy_button:+++QUARKUS_IPFS_PROVIDE_BLOCKS+++[]
+endif::add-copy-button-to-env-var[]
+ifndef::add-copy-button-to-env-var[]
+Environment variable: `+++QUARKUS_IPFS_PROVIDE_BLOCKS+++`
+endif::add-copy-button-to-env-var[]
+--
+|boolean
+|`+++false+++`
+
+a| [[quarkus-ipfs_quarkus-ipfs-run-bitswap]] [.property-path]##link:#quarkus-ipfs_quarkus-ipfs-run-bitswap[`+++quarkus.ipfs.run-bitswap+++`]##
+ifdef::add-copy-button-to-config-props[]
+config_property_copy_button:+++quarkus.ipfs.run-bitswap+++[]
+endif::add-copy-button-to-config-props[]
+
+
+[.description]
+--
+Whether to enable the Bitswap 1.2.0 block-exchange protocol. Disable to reduce startup time in isolated/test environments.
+
+
+ifdef::add-copy-button-to-env-var[]
+Environment variable: env_var_with_copy_button:+++QUARKUS_IPFS_RUN_BITSWAP+++[]
+endif::add-copy-button-to-env-var[]
+ifndef::add-copy-button-to-env-var[]
+Environment variable: `+++QUARKUS_IPFS_RUN_BITSWAP+++`
+endif::add-copy-button-to-env-var[]
+--
+|boolean
+|`+++true+++`
+
+a| [[quarkus-ipfs_quarkus-ipfs-async-bootstrap]] [.property-path]##link:#quarkus-ipfs_quarkus-ipfs-async-bootstrap[`+++quarkus.ipfs.async-bootstrap+++`]##
+ifdef::add-copy-button-to-config-props[]
+config_property_copy_button:+++quarkus.ipfs.async-bootstrap+++[]
+endif::add-copy-button-to-config-props[]
+
+
+[.description]
+--
+Whether to run DHT bootstrap asynchronously. Set to `false` in tests to ensure the node is fully bootstrapped before proceeding.
+
+
+ifdef::add-copy-button-to-env-var[]
+Environment variable: env_var_with_copy_button:+++QUARKUS_IPFS_ASYNC_BOOTSTRAP+++[]
+endif::add-copy-button-to-env-var[]
+ifndef::add-copy-button-to-env-var[]
+Environment variable: `+++QUARKUS_IPFS_ASYNC_BOOTSTRAP+++`
+endif::add-copy-button-to-env-var[]
+--
+|boolean
+|`+++true+++`
+
+a| [[quarkus-ipfs_quarkus-ipfs-identity-private-key]] [.property-path]##link:#quarkus-ipfs_quarkus-ipfs-identity-private-key[`+++quarkus.ipfs.identity-private-key+++`]##
+ifdef::add-copy-button-to-config-props[]
+config_property_copy_button:+++quarkus.ipfs.identity-private-key+++[]
+endif::add-copy-button-to-config-props[]
+
+
+[.description]
+--
+Base64-encoded protobuf private key bytes for a persistent peer identity. When absent, a new Ed25519 key is generated on each startup.
+
+
+ifdef::add-copy-button-to-env-var[]
+Environment variable: env_var_with_copy_button:+++QUARKUS_IPFS_IDENTITY_PRIVATE_KEY+++[]
+endif::add-copy-button-to-env-var[]
+ifndef::add-copy-button-to-env-var[]
+Environment variable: `+++QUARKUS_IPFS_IDENTITY_PRIVATE_KEY+++`
+endif::add-copy-button-to-env-var[]
+--
+|string
+|
+
+a|icon:lock[title=Fixed at build time] [[quarkus-ipfs_quarkus-ipfs-devservices-shared]] [.property-path]##link:#quarkus-ipfs_quarkus-ipfs-devservices-shared[[.line-through]#`+++quarkus.ipfs.devservices.shared+++`#]##
+ifdef::add-copy-button-to-config-props[]
+config_property_copy_button:+++quarkus.ipfs.devservices.shared+++[]
+endif::add-copy-button-to-config-props[]
+
+
+[.description]
+--
+_This property is deprecated: The option has no effect._
+
+Legacy Dev Services sharing option. The embedded node restarts on Quarkus live reloads.
+
+
+ifdef::add-copy-button-to-env-var[]
+Environment variable: env_var_with_copy_button:+++QUARKUS_IPFS_DEVSERVICES_SHARED+++[]
+endif::add-copy-button-to-env-var[]
+ifndef::add-copy-button-to-env-var[]
+Environment variable: `+++QUARKUS_IPFS_DEVSERVICES_SHARED+++`
+endif::add-copy-button-to-env-var[]
+--
+|boolean
+|`+++true+++`
+
+|===
+
