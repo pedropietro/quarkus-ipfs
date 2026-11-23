@@ -99,7 +99,7 @@ endif::add-copy-button-to-config-props[]
 
 [.description]
 --
-Whether Dev Services are enabled. When enabled, an in-process IPFS node is automatically started in dev/test mode so that no manual configuration is required.
+Whether Dev Services are enabled. When enabled, an in-process IPFS node is automatically started in dev/test mode when the extension and global Dev Services are enabled. Disabling this option uses the regular node defaults.
 
 
 ifdef::add-copy-button-to-env-var[]
@@ -120,7 +120,7 @@ endif::add-copy-button-to-config-props[]
 
 [.description]
 --
-TCP port for the Dev Services IPFS node. Use `0` (default) to let the OS assign a random available port.
+TCP port for the Dev Services IPFS node. Use `0` (default) for an ephemeral port. Explicit `quarkus.ipfs.swarm-addresses` takes precedence.
 
 
 ifdef::add-copy-button-to-env-var[]
@@ -152,7 +152,7 @@ Environment variable: `+++QUARKUS_IPFS_SWARM_ADDRESSES+++`
 endif::add-copy-button-to-env-var[]
 --
 |list of string
-|`+++/ip4/127.0.0.1/tcp/0+++`
+|
 
 a| [[quarkus-ipfs_quarkus-ipfs-bootstrap-addresses]] [.property-path]##link:#quarkus-ipfs_quarkus-ipfs-bootstrap-addresses[`+++quarkus.ipfs.bootstrap-addresses+++`]##
 ifdef::add-copy-button-to-config-props[]

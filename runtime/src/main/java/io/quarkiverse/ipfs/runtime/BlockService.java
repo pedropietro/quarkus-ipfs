@@ -5,7 +5,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
-import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 import org.peergos.EmbeddedIpfs;
@@ -17,7 +16,6 @@ import io.ipfs.cid.Cid;
 /**
  * CDI bean for raw block-level IPFS operations (put, get, has, remove by CID).
  */
-@ApplicationScoped
 public class BlockService {
 
     @Inject

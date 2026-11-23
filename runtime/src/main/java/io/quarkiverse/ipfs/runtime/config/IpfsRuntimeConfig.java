@@ -7,6 +7,7 @@ import io.quarkus.runtime.annotations.ConfigPhase;
 import io.quarkus.runtime.annotations.ConfigRoot;
 import io.smallrye.config.ConfigMapping;
 import io.smallrye.config.WithDefault;
+import io.smallrye.config.WithName;
 
 @ConfigMapping(prefix = "quarkus.ipfs")
 @ConfigRoot(phase = ConfigPhase.RUN_TIME)
@@ -17,8 +18,12 @@ public interface IpfsRuntimeConfig {
      * Example: {@code /ip4/0.0.0.0/tcp/4001}.
      * Use {@code /ip4/127.0.0.1/tcp/0} for a random port on loopback (default).
      */
-    @WithDefault("/ip4/127.0.0.1/tcp/0")
-    List<String> swarmAddresses();
+    @WithName("swarm-addresses")
+    Optional<List<String>> configuredSwarmAddresses();
+
+    default List<String> swarmAddresses() {
+        return configuredSwarmAddresses().orElseGet(() -> List.of("/ip4/127.0.0.1/tcp/0"));
+    }
 
     /**
      * Multiaddresses of bootstrap peers used to join the IPFS network.

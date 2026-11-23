@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
-import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 import io.ipfs.cid.Cid;
@@ -17,7 +16,6 @@ import io.ipfs.cid.Cid;
  * High-level file and DAG operations built on top of {@link BlockService}.
  * Files are chunked into 256KB raw blocks linked via a simple flat DAG-PB structure.
  */
-@ApplicationScoped
 public class DagService {
 
     static final int CHUNK_SIZE = 256 * 1024;

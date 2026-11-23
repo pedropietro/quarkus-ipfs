@@ -100,6 +100,8 @@ Antes do primeiro PR, registrar os resultados de uma execução limpa de `mvn -B
 
 ### PR 1 · Ciclo de vida e CDI
 
+O módulo nabu-upstream aplica lifecycle.xml às fontes verificadas do commit fixado. O patch permite iniciar sem o hook global no Quarkus, interrompe os workers do Nabu no encerramento e aguarda o fechamento do host e do mDNS. A entrada padrão do Nabu continua instalando o hook para o uso autônomo.
+
 - Em `runtime/src/main/java/io/quarkiverse/ipfs/runtime/IpfsRecorder.java`, receber a configuração de runtime no recorder, criar o nó uma vez, fechar recursos em falhas parciais e registrar parada idempotente com espera limitada. Se o Nabu exigir uma correção upstream para iniciar sem hook global, atualizar a dependência em `pom.xml` neste PR.
 - Em `deployment/src/main/java/io/quarkiverse/ipfs/deployment/IpfsProcessor.java`, concentrar a decisão do modo, o registro de CDI e a inicialização. Registrar os beans do nó e os serviços somente com `quarkus.ipfs.enabled=true`. Remover o caminho anterior de `deployment/src/main/java/io/quarkiverse/ipfs/deployment/devservices/IpfsDevServicesProcessor.java` e `IpfsDevServicesBuildItem.java`, junto com `runtime/src/main/java/io/quarkiverse/ipfs/runtime/IpfsDevServicesRecorder.java`, após migrar a seleção de porta e o shutdown.
 - Em `runtime/src/main/java/io/quarkiverse/ipfs/runtime/config/IpfsDevServicesConfig.java`, documentar a depreciação de `shared` e a precedência entre as configurações.

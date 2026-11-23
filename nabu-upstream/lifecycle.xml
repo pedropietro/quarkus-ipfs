@@ -1,0 +1,319 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="nabu-lifecycle">
+    <!-- Applied to the SHA-256-verified upstream sources during generate-sources. -->
+    <target name="apply">
+        <condition property="patch.eol" value="crlf" else="lf">
+            <os family="windows"/>
+        </condition>
+        <fixcrlf srcdir="${nabu.sourceDirectory}/src/main/java/org/peergos"
+                 includes="EmbeddedIpfs.java,HostBuilder.java,PeriodicBlockProvider.java,protocol/dht/Kademlia.java,protocol/bitswap/Bitswap.java"
+                 eol="${patch.eol}" fixlast="false"/>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/EmbeddedIpfs.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[    public void start(boolean asyncBootstrap) {
+        LOG.info("Starting IPFS...");
+        Thread shutdownHook = new Thread(() -> {
+            LOG.info("Stopping Ipfs server...");
+            try {
+                this.stop().join();
+            } catch (Exception ex) {
+                LOG.info(ex.getMessage());
+            }
+        });
+        Runtime.getRuntime().addShutdownHook(shutdownHook);]]></replacetoken>
+            <replacevalue><![CDATA[    public void start(boolean asyncBootstrap) {
+        start(asyncBootstrap, true);
+    }
+
+    public void start(boolean asyncBootstrap, boolean installShutdownHook) {
+        LOG.info("Starting IPFS...");
+        if (installShutdownHook) {
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                try {
+                    stop().join();
+                } catch (Exception ex) {
+                    LOG.info(ex.getMessage());
+                }
+            }));
+        }]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/EmbeddedIpfs.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[        return node != null ? node.stop() : CompletableFuture.completedFuture(null);]]></replacetoken>
+            <replacevalue><![CDATA[        CompletableFuture<Void> stopped = node != null ? node.stop() : CompletableFuture.completedFuture(null);
+        return stopped.thenRunAsync(() -> {
+            dht.awaitBootstrapShutdown();
+            blockProvider.ifPresent(PeriodicBlockProvider::awaitShutdown);
+        });]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/dht/Kademlia.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[    private AtomicBoolean running = new AtomicBoolean(false);
+    public void startBootstrapThread(Host us) {
+        running.set(true);
+        new Thread(() -> {]]></replacetoken>
+            <replacevalue><![CDATA[    private final AtomicBoolean running = new AtomicBoolean(false);
+    private Thread bootstrapThread;
+
+    public void startBootstrapThread(Host us) {
+        running.set(true);
+        bootstrapThread = new Thread(() -> {]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/dht/Kademlia.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[                } catch (Libp2pException e) {
+                    if (! e.getMessage().contains("Transport is closed"))
+                        e.printStackTrace();
+                } catch (Throwable t) {
+                    t.printStackTrace();
+                }
+            }
+        }, "Kademlia bootstrap").start();
+    }
+
+    public void stopBootstrapThread() {
+        running.set(false);
+    }]]></replacetoken>
+            <replacevalue><![CDATA[                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                } catch (RuntimeException e) {
+                    if (running.get())
+                        LOG.log(java.util.logging.Level.WARNING, "IPFS bootstrap failed", e);
+                }
+            }
+        }, "Kademlia bootstrap");
+        bootstrapThread.start();
+    }
+
+    public void stopBootstrapThread() {
+        running.set(false);
+        if (bootstrapThread != null)
+            bootstrapThread.interrupt();
+        for (Runnable pending : ioExec.shutdownNow()) {
+            if (pending instanceof Future<?> future)
+                future.cancel(false);
+        }
+    }
+
+    public void awaitBootstrapShutdown() {
+        try {
+            if (bootstrapThread != null && !bootstrapThread.join(java.time.Duration.ofSeconds(5)))
+                throw new IllegalStateException("IPFS bootstrap worker did not stop");
+            if (!ioExec.awaitTermination(2, TimeUnit.SECONDS))
+                throw new IllegalStateException("IPFS DHT executor did not stop");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new CompletionException(e);
+        }
+    }]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/PeriodicBlockProvider.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[    private final AtomicBoolean running = new AtomicBoolean(false);
+    public void start() {
+        running.set(true);
+        new Thread(this::run, "CidReprovider").start();
+        new Thread(this::provideNewBlocks, "NewCidProvider").start();
+    }
+
+    public void stop() {
+        running.set(false);
+    }]]></replacetoken>
+            <replacevalue><![CDATA[    private final AtomicBoolean running = new AtomicBoolean(false);
+    private Thread reprovider;
+    private Thread newBlockProvider;
+
+    public void start() {
+        running.set(true);
+        reprovider = new Thread(this::run, "CidReprovider");
+        newBlockProvider = new Thread(this::provideNewBlocks, "NewCidProvider");
+        reprovider.start();
+        newBlockProvider.start();
+    }
+
+    public void stop() {
+        running.set(false);
+        if (reprovider != null)
+            reprovider.interrupt();
+        if (newBlockProvider != null)
+            newBlockProvider.interrupt();
+    }
+
+    public void awaitShutdown() {
+        try {
+            if (reprovider != null && !reprovider.join(java.time.Duration.ofSeconds(1)))
+                throw new IllegalStateException("IPFS block reprovider did not stop");
+            if (newBlockProvider != null && !newBlockProvider.join(java.time.Duration.ofSeconds(1)))
+                throw new IllegalStateException("IPFS new block provider did not stop");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new CompletionException(e);
+        }
+    }]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/PeriodicBlockProvider.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[            } catch (Throwable e) {
+                LOG.log(Level.WARNING, e.getMessage(), e);
+            }]]></replacetoken>
+            <replacevalue><![CDATA[            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (Exception e) {
+                LOG.log(Level.WARNING, e.getMessage(), e);
+            }]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/PeriodicBlockProvider.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[    public void publish(Stream<Cid> blocks) {]]></replacetoken>
+            <replacevalue><![CDATA[    public void publish(Stream<Cid> blocks) throws InterruptedException, ExecutionException {]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/PeriodicBlockProvider.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[            fut.join();]]></replacetoken>
+            <replacevalue><![CDATA[            fut.get();]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/HostBuilder.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[    private final ReachabilityManager reachability = new ReachabilityManager();]]></replacetoken>
+            <replacevalue><![CDATA[    private final ReachabilityManager reachability = new ReachabilityManager();
+    private final List<Runnable> shutdownTasks = new ArrayList<>();
+
+    void stopBackgroundServices() {
+        shutdownTasks.forEach(Runnable::run);
+        shutdownTasks.clear();
+    }]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/HostBuilder.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[        return build(privKey, listenAddrs, protocols, muxers, addrs, reachability, relayHop, relayStop, relayCandidates, dcutr);]]></replacetoken>
+            <replacevalue><![CDATA[        return build(privKey, listenAddrs, protocols, muxers, addrs, reachability, relayHop, relayStop, relayCandidates, dcutr, shutdownTasks);]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/HostBuilder.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[                             DcutrProtocol.Binding dcutr) {
+        Host host =]]></replacetoken>
+            <replacevalue><![CDATA[                             DcutrProtocol.Binding dcutr) {
+        return build(privKey, listenAddrs, protocols, muxers, addrs, reachability, relayHop, relayStop, relayCandidates, dcutr,
+                new ArrayList<>());
+    }
+
+    private static Host build(PrivKey privKey, List<String> listenAddrs, List<ProtocolBinding> protocols,
+                              List<StreamMuxerProtocol> muxers, AddressBook addrs, ReachabilityManager reachability,
+                              CircuitHopProtocol.Binding relayHop, CircuitStopProtocol.Binding relayStop,
+                              Function<Host, List<RelayTransport.CandidateRelay>> relayCandidates,
+                              DcutrProtocol.Binding dcutr, List<Runnable> shutdownTasks) {
+        Host host =]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/HostBuilder.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[                b.getTransports().add(u -> new RelayTransport]]></replacetoken>
+            <replacevalue><![CDATA[                shutdownTasks.add(relayRunner::shutdownNow);
+                b.getTransports().add(u -> new RelayTransport]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/HostBuilder.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[                            reachability.addListener(state -> {]]></replacetoken>
+            <replacevalue><![CDATA[                            shutdownTasks.add(autoRelayRunner::shutdownNow);
+                            reachability.addListener(state -> {]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/HostBuilder.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[                                if (state == ReachabilityManager.Reachability.PRIVATE) {]]></replacetoken>
+            <replacevalue><![CDATA[                                if (state == ReachabilityManager.Reachability.PRIVATE && !autoRelayRunner.isShutdown()) {]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/HostBuilder.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[                    client.start();]]></replacetoken>
+            <replacevalue><![CDATA[                    shutdownTasks.add(client::stop);
+                    client.start();]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/EmbeddedIpfs.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[    private boolean portForwardingEnabled;]]></replacetoken>
+            <replacevalue><![CDATA[    private boolean portForwardingEnabled;
+    private Runnable stopBackgroundServices = () -> {};]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/EmbeddedIpfs.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[        portForwarders.forEach(PortForwarder::stop);]]></replacetoken>
+            <replacevalue><![CDATA[        stopBackgroundServices.run();
+        portForwarders.forEach(PortForwarder::stop);]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/EmbeddedIpfs.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[        ipfs.reachability = builder.getReachability();]]></replacetoken>
+            <replacevalue><![CDATA[        ipfs.stopBackgroundServices = () -> {
+            bitswap.ifPresent(Bitswap::stopDownloads);
+            builder.stopBackgroundServices();
+        };
+        ipfs.reachability = builder.getReachability();]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/bitswap/Bitswap.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[    private AddressBook addrs;]]></replacetoken>
+            <replacevalue><![CDATA[    private AddressBook addrs;
+    private final ExecutorService downloadWorkers = Executors.newCachedThreadPool(r -> new Thread(r, "bitswap-download"));
+
+    public void stopDownloads() {
+        downloadWorkers.shutdownNow();
+    }]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/bitswap/Bitswap.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[            if (! running.get())
+                new Thread(() -> run()).start();]]></replacetoken>
+            <replacevalue><![CDATA[            if (running.compareAndSet(false, true)) {
+                try {
+                    downloadWorkers.execute(this::run);
+                } catch (RejectedExecutionException e) {
+                    running.set(false);
+                    if (!downloadWorkers.isShutdown())
+                        throw e;
+                }
+            }]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/bitswap/Bitswap.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[            running.set(true);
+            while (true) {
+                try {Thread.sleep(5_000);} catch (InterruptedException e) {}
+                Set<Want> wants = engine.getWants(peers);
+                if (wants.isEmpty())
+                    break;
+                sendWants(us, wants, peers);
+            }
+            running.set(false);]]></replacetoken>
+            <replacevalue><![CDATA[            try {
+                while (!Thread.currentThread().isInterrupted()) {
+                    Thread.sleep(5_000);
+                    Set<Want> wants = engine.getWants(peers);
+                    if (wants.isEmpty())
+                        return;
+                    sendWants(us, wants, peers);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                running.set(false);
+            }]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/bitswap/Bitswap.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[private void dialPeer(Host us, PeerId peer, Consumer<BitswapController> action) {]]></replacetoken>
+            <replacevalue><![CDATA[private void dialPeer(Host us, PeerId peer, Consumer<BitswapController> action) throws InterruptedException, ExecutionException {]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/bitswap/Bitswap.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[BitswapController controller = dial(us, peer, addr).getController().join();]]></replacetoken>
+            <replacevalue><![CDATA[BitswapController controller = dial(us, peer, addr).getController().get();]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/bitswap/Bitswap.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[                    } catch (Exception e) {
+                        LOG.info(e.getMessage());]]></replacetoken>
+            <replacevalue><![CDATA[                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    } catch (Exception e) {
+                        LOG.info(e.getMessage());]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/EmbeddedIpfs.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[    private final List<MDnsDiscovery> mdns = new ArrayList<>();]]></replacetoken>
+            <replacevalue><![CDATA[    private final List<MDnsDiscovery> mdns = new ArrayList<>();
+    private CompletableFuture<Void> mdnsStarted = CompletableFuture.completedFuture(null);]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/EmbeddedIpfs.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[        mdns.start();]]></replacetoken>
+            <replacevalue><![CDATA[        mdnsStarted = mdns.start();]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/EmbeddedIpfs.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[        for (MDnsDiscovery m : mdns) {
+            m.stop();
+        }
+        CompletableFuture<Void> stopped = node != null ? node.stop() : CompletableFuture.completedFuture(null);]]></replacetoken>
+            <replacevalue><![CDATA[        CompletableFuture<Void> discoveryStopped = mdnsStarted.handle((ignored, failure) -> null)
+                .thenCompose(ignored -> CompletableFuture.allOf(mdns.stream()
+                        .map(MDnsDiscovery::stop)
+                        .toArray(CompletableFuture[]::new)));
+        CompletableFuture<Void> hostStopped = node != null ? node.stop() : CompletableFuture.completedFuture(null);
+        CompletableFuture<Void> stopped = CompletableFuture.allOf(discoveryStopped, hostStopped);]]></replacevalue>
+        </replace>
+    </target>
+</project>

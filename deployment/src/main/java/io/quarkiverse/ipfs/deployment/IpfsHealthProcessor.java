@@ -13,6 +13,6 @@ class IpfsHealthProcessor {
 
     @BuildStep
     HealthBuildItem addHealthCheck(IpfsBuildTimeConfig config) {
-        return new HealthBuildItem(IpfsHealthCheck.class.getName(), config.healthEnabled());
+        return !config.enabled() ? null : new HealthBuildItem(IpfsHealthCheck.class.getName(), config.healthEnabled());
     }
 }

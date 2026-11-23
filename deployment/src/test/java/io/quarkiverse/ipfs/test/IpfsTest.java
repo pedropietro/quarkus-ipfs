@@ -34,7 +34,7 @@ public class IpfsTest {
     @Test
     public void testIpfsClientIsInjectable() {
         Assertions.assertNotNull(ipfsClient, "IpfsClient bean must be injectable");
-        Assertions.assertNotNull(ipfsClient.getNode(), "IpfsClient.getNode() must return non-null");
+        Assertions.assertSame(embeddedIpfs, ipfsClient.getNode());
     }
 
     @Test

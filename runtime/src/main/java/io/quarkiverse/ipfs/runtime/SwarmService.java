@@ -5,7 +5,6 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
-import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 import org.peergos.EmbeddedIpfs;
@@ -18,7 +17,6 @@ import io.libp2p.core.multiformats.Multiaddr;
 /**
  * Peer and swarm management: connect, disconnect, list connected peers, get listen addresses.
  */
-@ApplicationScoped
 public class SwarmService {
 
     @Inject

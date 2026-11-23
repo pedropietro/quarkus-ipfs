@@ -1,11 +1,13 @@
 package io.quarkiverse.ipfs.runtime;
 
 import java.util.Base64;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.jboss.logging.Logger;
 import org.peergos.EmbeddedIpfs;
 import org.peergos.HostBuilder;
 import org.peergos.RamAddressBook;
@@ -16,10 +18,7 @@ import org.peergos.protocol.dht.RamRecordStore;
 import io.ipfs.multiaddr.MultiAddress;
 import io.libp2p.core.PeerId;
 import io.libp2p.core.crypto.KeyKt;
-import io.libp2p.core.crypto.PrivKey;
-import io.quarkiverse.ipfs.runtime.config.IpfsBuildTimeConfig;
 import io.quarkiverse.ipfs.runtime.config.IpfsRuntimeConfig;
-import io.quarkus.arc.Arc;
 import io.quarkus.runtime.RuntimeValue;
 import io.quarkus.runtime.ShutdownContext;
 import io.quarkus.runtime.annotations.Recorder;
@@ -27,83 +26,75 @@ import io.quarkus.runtime.annotations.Recorder;
 @Recorder
 public class IpfsRecorder {
 
-    /**
-     * Creates the node identity (generates or loads from config).
-     * Must be called before {@link #createEmbeddedIpfs} so that both share the same identity.
-     * Accesses {@link IpfsRuntimeConfig} from CDI at RUNTIME_INIT time.
-     */
-    public RuntimeValue<IpfsNodeInfo> createNodeInfo() {
-        IpfsRuntimeConfig runtimeConfig = Arc.container().instance(IpfsRuntimeConfig.class).get();
-        byte[] privKeyBytes = resolvePrivKeyBytes(runtimeConfig);
-        PrivKey privKey = KeyKt.unmarshalPrivateKey(privKeyBytes);
-        PeerId peerId = PeerId.fromPubKey(privKey.publicKey());
-        return new RuntimeValue<>(new IpfsNodeInfo(privKey, peerId));
+    private static final Logger LOG = Logger.getLogger(IpfsRecorder.class);
+    private static final int SHUTDOWN_TIMEOUT_SECONDS = 10;
+
+    private final RuntimeValue<IpfsRuntimeConfig> config;
+
+    public IpfsRecorder(RuntimeValue<IpfsRuntimeConfig> config) {
+        this.config = config;
     }
 
-    /**
-     * Creates and starts the embedded IPFS node using the pre-resolved identity from
-     * {@link #createNodeInfo}. When Dev Services already started a node (dev/test mode),
-     * that node is reused instead of starting a new one.
-     * Accesses {@link IpfsRuntimeConfig} from CDI at RUNTIME_INIT time.
-     */
-    public RuntimeValue<EmbeddedIpfs> createEmbeddedIpfs(
-            RuntimeValue<IpfsNodeInfo> nodeInfoValue,
-            IpfsBuildTimeConfig buildTimeConfig,
-            ShutdownContext shutdownContext) {
-
-        IpfsRuntimeConfig runtimeConfig = Arc.container().instance(IpfsRuntimeConfig.class).get();
-
+    public RuntimeValue<EmbeddedIpfs> start(int defaultPort, ShutdownContext shutdownContext) {
+        IpfsRuntimeConfig settings = config.getValue();
+        var privateKey = settings.identityPrivateKey()
+                .map(value -> KeyKt.unmarshalPrivateKey(Base64.getDecoder().decode(value)))
+                .orElseGet(() -> new HostBuilder(new RamAddressBook()).generateIdentity().getPrivateKey());
+        var identity = new IdentitySection(KeyKt.marshalPrivateKey(privateKey), PeerId.fromPubKey(privateKey.publicKey()));
+        List<MultiAddress> swarm = settings.configuredSwarmAddresses()
+                .orElseGet(() -> List.of("/ip4/127.0.0.1/tcp/" + defaultPort))
+                .stream().map(MultiAddress::new).toList();
+        List<MultiAddress> bootstrap = settings.bootstrapAddresses().orElseGet(List::of)
+                .stream().map(MultiAddress::new).toList();
+        var records = new RamRecordStore();
+        EmbeddedIpfs node;
         try {
-            IpfsNodeInfo nodeInfo = nodeInfoValue.getValue();
-            PrivKey privKey = nodeInfo.getPrivateKey();
-            PeerId peerId = nodeInfo.getPeerId();
-            byte[] privKeyBytes = KeyKt.marshalPrivateKey(privKey);
-            IdentitySection identity = new IdentitySection(privKeyBytes, peerId);
-
-            var blockstore = new RamBlockstore();
-            var records = new RamRecordStore();
-
-            List<MultiAddress> swarmAddresses = runtimeConfig.swarmAddresses().stream()
-                    .map(MultiAddress::new)
-                    .collect(Collectors.toList());
-
-            List<MultiAddress> bootstrap = runtimeConfig.bootstrapAddresses()
-                    .map(addrs -> addrs.stream()
-                            .map(MultiAddress::new)
-                            .collect(Collectors.<MultiAddress> toList()))
-                    .orElse(Collections.emptyList());
-
-            EmbeddedIpfs ipfs = EmbeddedIpfs.build(
-                    records,
-                    blockstore,
-                    runtimeConfig.provideBlocks(),
-                    swarmAddresses,
-                    bootstrap,
-                    identity,
-                    (cid, peer, auth) -> java.util.concurrent.CompletableFuture.completedFuture(true),
+            node = EmbeddedIpfs.build(records, new RamBlockstore(), settings.provideBlocks(),
+                    swarm, bootstrap, identity, (cid, peer, auth) -> CompletableFuture.completedFuture(true),
                     Optional.empty());
+        } catch (RuntimeException | Error failure) {
+            try {
+                records.close();
+            } catch (Exception cleanup) {
+                failure.addSuppressed(cleanup);
+            }
+            throw failure;
+        }
 
-            ipfs.start(runtimeConfig.asyncBootstrap());
-
+        AtomicBoolean stopped = new AtomicBoolean();
+        try {
+            node.start(settings.asyncBootstrap(), false);
             shutdownContext.addShutdownTask(() -> {
                 try {
-                    ipfs.stop().get();
-                } catch (Exception e) {
-                    // do not block shutdown
+                    stop(node, stopped);
+                } catch (Exception failure) {
+                    LOG.warn("Failed to stop the embedded IPFS node", failure);
                 }
             });
-
-            return new RuntimeValue<>(ipfs);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to start embedded IPFS node", e);
+            return new RuntimeValue<>(node);
+        } catch (RuntimeException | Error failure) {
+            try {
+                stop(node, stopped);
+            } catch (Exception cleanup) {
+                failure.addSuppressed(cleanup);
+            }
+            throw failure;
         }
     }
 
-    private byte[] resolvePrivKeyBytes(IpfsRuntimeConfig config) {
-        if (config.identityPrivateKey().isPresent()) {
-            return Base64.getDecoder().decode(config.identityPrivateKey().get());
+    public RuntimeValue<IpfsNodeInfo> nodeInfo(RuntimeValue<EmbeddedIpfs> value) {
+        var host = value.getValue().node;
+        return new RuntimeValue<>(new IpfsNodeInfo(host.getPrivKey(), host.getPeerId()));
+    }
+
+    private static void stop(EmbeddedIpfs node, AtomicBoolean stopped) throws Exception {
+        if (stopped.compareAndSet(false, true)) {
+            try {
+                node.stop().get(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw interrupted;
+            }
         }
-        var builder = new HostBuilder(new RamAddressBook()).generateIdentity();
-        return KeyKt.marshalPrivateKey(builder.getPrivateKey());
     }
 }

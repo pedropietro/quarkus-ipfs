@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
-import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 import org.peergos.EmbeddedIpfs;
@@ -18,7 +17,6 @@ import io.libp2p.core.crypto.PrivKey;
  * IPNS publish and resolve operations.
  * Uses {@link EmbeddedIpfs#publishValue} and {@link EmbeddedIpfs#resolveValue}.
  */
-@ApplicationScoped
 public class IpnsService {
 
     @Inject

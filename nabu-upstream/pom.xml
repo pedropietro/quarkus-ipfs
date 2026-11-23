@@ -178,6 +178,7 @@
                                         <include name="nabu-${nabu.revision}/src/main/resources/**"/>
                                     </patternset>
                                 </unzip>
+                                <ant antfile="${project.basedir}/lifecycle.xml" target="apply"/>
                             </target>
                         </configuration>
                     </execution>
