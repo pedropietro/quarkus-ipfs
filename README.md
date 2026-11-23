@@ -1,37 +1,103 @@
-# Quarkus Ipfs
+# Quarkus IPFS
 
-[![Version](https://img.shields.io/maven-central/v/io.quarkiverse.ipfs/quarkus-ipfs?logo=apache-maven&style=flat-square)](https://central.sonatype.com/artifact/io.quarkiverse.ipfs/quarkus-ipfs-parent)
+Quarkus IPFS embeds a Peergos Nabu node in a Quarkus application. Inject CDI services to store and retrieve blocks by CID, manage peers, and work with DAGs and IPNS. The extension is experimental.
 
-## Welcome to Quarkiverse!
+## Quick start
 
-Congratulations and thank you for creating a new Quarkus extension project in Quarkiverse!
+Use Java 21 or newer and a Maven application with the Quarkus 4.0.0 BOM. The GitHub repository is the distribution channel for this snapshot. Install it into your local Maven repository before adding it to an application.
 
-Feel free to replace this content with the proper description of your new project and necessary instructions how to use and contribute to it.
+```sh
+git clone https://github.com/pedropietro/quarkus-ipfs.git
+cd quarkus-ipfs
+./mvnw -B -pl deployment -am install -DskipTests
+```
 
-You can find the basic info, Quarkiverse policies and conventions in [the Quarkiverse wiki](https://github.com/quarkiverse/quarkiverse/wiki).
+On Windows, use `.\mvnw.cmd` in place of `./mvnw`. The build downloads and verifies the pinned Nabu source archive. Maven resolves some networking dependencies from JitPack.
 
-In case you are creating a Quarkus extension project for the first time, please follow [Building My First Extension](https://quarkus.io/guides/building-my-first-extension) guide.
+In a Quarkus REST application, add this dependency to `pom.xml` under `<dependencies>`.
 
-Other useful articles related to Quarkus extension development can be found under the [Writing Extensions](https://quarkus.io/guides/#writing-extensions) guide category on the [Quarkus.io](https://quarkus.io) website.
+```xml
+<dependency>
+    <groupId>io.quarkiverse.ipfs</groupId>
+    <artifactId>quarkus-ipfs</artifactId>
+    <version>999-SNAPSHOT</version>
+</dependency>
+```
 
-Thanks again, good luck and have fun!
+The example uses `io.quarkus:quarkus-rest`. Add it if the application does not already use Quarkus REST. Ensure the application can resolve dependencies from Maven Central and JitPack. Add the following to its existing `<repositories>` section, or create that section.
 
-## Build requirements
+```xml
+<repository>
+    <id>jitpack.io</id>
+    <url>https://jitpack.io</url>
+</repository>
+```
 
-Use Java 21 or newer and the Maven Wrapper. The `nabu-upstream` module downloads the source archive of the pinned Peergos Nabu commit, checks its SHA-256 and packages its MIT license with the library. [Pinned Nabu source](https://github.com/Peergos/nabu/tree/d2454c9af6e05e15d703ef394687857aab2432a9)
+Create `src/main/java/org/acme/BlocksResource.java`.
 
-This extension targets Quarkus 4.0 and uses its BOM to align Netty and Vert.x with the Nabu networking stack.
+```java
+package org.acme;
 
-The default IPFS swarm transport is TCP. QUIC swarm addresses use the same Netty codec as Vert.x and require the `io.netty:netty-codec-native-quic` classifier for the target platform.
+import java.util.concurrent.CompletionStage;
 
-On Windows, run `mvnw.cmd -B clean verify -DskipITs=false`. On Linux or macOS, run `bash ./mvnw -B clean verify -DskipITs=false`.
+import jakarta.inject.Inject;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
 
-## Documentation
+import io.ipfs.cid.Cid;
+import io.quarkiverse.ipfs.runtime.BlockService;
 
-The documentation for this extension should be maintained as part of this repository and it is stored in the `docs/` directory.
+@Path("/blocks")
+public class BlocksResource {
 
-The layout should follow the [Antora's Standard File and Directory Set](https://docs.antora.org/antora/2.3/standard-directories/).
+    @Inject
+    BlockService blocks;
 
-Once the docs are ready to be published, please open a PR including this repository in the [Quarkiverse Docs Antora playbook](https://github.com/quarkiverse/quarkiverse-docs/blob/main/antora-playbook.yml#L7). See an example [here](https://github.com/quarkiverse/quarkiverse-docs/pull/1)
+    @POST
+    @Consumes(MediaType.APPLICATION_OCTET_STREAM)
+    @Produces(MediaType.TEXT_PLAIN)
+    public CompletionStage<String> put(byte[] bytes) {
+        return blocks.put(bytes, Cid.Codec.Raw).thenApply(Cid::toString);
+    }
 
-Your documentation will then be published to the <https://docs.quarkiverse.io/> website.
+    @GET
+    @Path("/{cid}")
+    @Produces(MediaType.APPLICATION_OCTET_STREAM)
+    public CompletionStage<byte[]> get(@PathParam("cid") String cid) {
+        return blocks.get(cid);
+    }
+}
+```
+
+From the application directory, run `mvn quarkus:dev`. Send a block and read it back by its CID.
+
+```sh
+cid=$(curl -fsS -H 'Content-Type: application/octet-stream' \
+  --data-binary 'hello ipfs' http://localhost:8080/blocks)
+curl -fsS "http://localhost:8080/blocks/$cid"
+```
+
+The response is `hello ipfs`. The default `RAM` store lives for one application run. To persist blocks, set `quarkus.ipfs.storage-type=FILE` and `quarkus.ipfs.storage-path` to a dedicated directory that the application can write to. [Storage, Dev Services, and network configuration](docs/modules/ROOT/pages/index.adoc)
+
+## Verify the extension
+
+The Maven Wrapper uses Maven 3.10.2. The JVM suite includes tests against the packaged JAR.
+
+```sh
+./mvnw -B clean verify
+```
+
+On Linux with Docker, use Mandrel 25 to build and test the Linux native executable. Use a Linux build environment when executing the Linux integration tests.
+
+```sh
+bash ./mvnw -B -pl deployment,integration-tests -am clean verify \
+  -Dnative -Dquarkus.native.container-build=true -Dnative.surefire.skip=true \
+  -Dquarkus.native.builder-image=quay.io/quarkus/ubi10-quarkus-mandrel-builder-image:jdk-25
+```
+
+GitHub Actions publishes the Surefire and Failsafe reports for the JVM and native jobs. [Build workflow](.github/workflows/build.yml)

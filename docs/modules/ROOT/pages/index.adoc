@@ -1,33 +1,61 @@
-= Quarkus Ipfs
+= Quarkus IPFS
 
-include::./includes/attributes.adoc[]
+Quarkus IPFS embeds a Peergos Nabu node in a Quarkus application.
+Use CDI to store blocks and retrieve them by CID.
+The extension also provides peer, DAG, and IPNS operations.
 
-TIP: Describe what the extension does here.
+== Installation and CDI
 
-== Installation
+Use Java 21 or newer and the Quarkus 4.0.0 BOM.
+Install the snapshot into your Maven repository from the GitHub source checkout.
+Add the local snapshot and JitPack repository to the consumer application.
+The README includes a complete REST resource that injects `BlockService`, writes a block, and reads it by CID. https://github.com/pedropietro/quarkus-ipfs#quick-start[Installation and CDI example]
 
-Use Java 21 or newer and an application built with Quarkus 4.0.
-The Quarkus BOM supplies the Netty 4.2 and Vert.x 5 dependencies used by this extension.
-Add the `io.quarkiverse.ipfs:quarkus-ipfs` dependency to your build file.
+== Storage and identity
 
-With Maven, add the following to your `pom.xml`:
+The default storage backend, `RAM`, keeps blocks in memory for one application run.
+Set `FILE` to preserve blocks across application restarts.
+The extension creates the block directory under the configured path if needed.
+Choose a dedicated, writable directory and reuse it on restart.
 
-[source,xml,subs=attributes+]
+[source,properties]
 ----
-<dependency>
-    <groupId>io.quarkiverse.ipfs</groupId>
-    <artifactId>quarkus-ipfs</artifactId>
-    <version>{project-version}</version>
-</dependency>
-----
-
-With Gradle, add the following to your `build.gradle`:
-
-[source,gradle,subs=attributes+]
-----
-implementation("io.quarkiverse.ipfs:quarkus-ipfs:{project-version}")
+quarkus.ipfs.storage-type=FILE
+quarkus.ipfs.storage-path=./var/ipfs
 ----
 
-== Usage
+The storage backend is fixed at build time.
+The path can be set at runtime.
+The node normally generates a new peer identity on startup.
+To keep the same identity across restarts, supply `quarkus.ipfs.identity-private-key` through a secret-backed configuration source.
 
-TIP: Add a minimal usage example here.
+== Development and tests
+
+Dev Services starts the embedded node in dev and test mode with no Docker requirement.
+The default swarm listener uses loopback and an ephemeral TCP port.
+Set `quarkus.ipfs.devservices.port` for a fixed port when both the global and IPFS Dev Services flags are enabled.
+Explicit `quarkus.ipfs.swarm-addresses` takes precedence.
+Disabling Dev Services selects the regular node defaults.
+Set `quarkus.ipfs.enabled=false` to disable the node and its CDI services.
+
+Each live reload starts a fresh node and closes the previous one.
+RAM blocks and generated peer identities are recreated on reload.
+The `quarkus.ipfs.devservices.shared` setting is deprecated.
+
+== Network and readiness
+
+Configure `quarkus.ipfs.swarm-addresses` to listen on a deliberate interface and `quarkus.ipfs.bootstrap-addresses` to contact known peers on startup.
+The default bootstrap list is empty.
+Nabu can still discover local peers using mDNS.
+TCP is the default transport.
+QUIC addresses require the matching platform classifier of `io.netty:netty-codec-native-quic`.
+
+Block reads try the local store first.
+Bitswap can fetch missing blocks from connected peers or providers discovered via the DHT.
+Use `quarkus.ipfs.run-bitswap=false` for local reads only.
+Enable `quarkus.ipfs.provide-blocks` if you want to announce blocks to the DHT.
+
+With SmallRye Health installed and `quarkus.ipfs.health-enabled=true`, `/q/health/ready` includes the IPFS check.
+The check reports the status of the local node.
+
+See the xref:config-reference.adoc[configuration reference] for all properties.
