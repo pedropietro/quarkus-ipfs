@@ -57,7 +57,7 @@ endif::add-copy-button-to-config-props[]
 
 [.description]
 --
-Whether to register IPFS Micrometer gauges and counters. Requires `quarkus-micrometer` on the classpath.
+Reserved for IPFS Micrometer gauges and counters. The extension does not register Micrometer metrics yet. This setting has no effect.
 
 
 ifdef::add-copy-button-to-env-var[]
@@ -183,7 +183,7 @@ endif::add-copy-button-to-config-props[]
 
 [.description]
 --
-Filesystem path used when `storage-type=FILE`. Ignored when using the default RAM storage.
+Dedicated filesystem directory required when `storage-type=FILE`. Ignored when using the default RAM storage.
 
 
 ifdef::add-copy-button-to-env-var[]
@@ -194,7 +194,7 @@ Environment variable: `+++QUARKUS_IPFS_STORAGE_PATH+++`
 endif::add-copy-button-to-env-var[]
 --
 |string
-|`+++${user.home}/.ipfs+++`
+|
 
 a| [[quarkus-ipfs_quarkus-ipfs-provide-blocks]] [.property-path]##link:#quarkus-ipfs_quarkus-ipfs-provide-blocks[`+++quarkus.ipfs.provide-blocks+++`]##
 ifdef::add-copy-button-to-config-props[]
@@ -225,7 +225,7 @@ endif::add-copy-button-to-config-props[]
 
 [.description]
 --
-Whether to enable the Bitswap 1.2.0 block-exchange protocol. Disable to reduce startup time in isolated/test environments.
+Whether to enable the Bitswap 1.2.0 block-exchange protocol. When disabled, block reads use the local store only. The node does not exchange blocks with peers.
 
 
 ifdef::add-copy-button-to-env-var[]
@@ -246,7 +246,7 @@ endif::add-copy-button-to-config-props[]
 
 [.description]
 --
-Whether to run DHT bootstrap asynchronously. Set to `false` in tests to ensure the node is fully bootstrapped before proceeding.
+Skip the initial synchronous DHT routing-table refresh. Configured bootstrap peers are still contacted during startup, and periodic refresh runs in the background.
 
 
 ifdef::add-copy-button-to-env-var[]

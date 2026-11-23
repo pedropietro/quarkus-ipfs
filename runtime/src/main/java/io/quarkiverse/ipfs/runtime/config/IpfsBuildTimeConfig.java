@@ -24,8 +24,8 @@ public interface IpfsBuildTimeConfig {
     boolean healthEnabled();
 
     /**
-     * Whether to register IPFS Micrometer gauges and counters.
-     * Requires {@code quarkus-micrometer} on the classpath.
+     * Reserved for IPFS Micrometer gauges and counters.
+     * The extension does not register Micrometer metrics yet. This setting has no effect.
      */
     @WithDefault("true")
     boolean metricsEnabled();

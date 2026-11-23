@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="nabu-block-fetch">
+    <target name="apply">
+        <condition property="patch.eol" value="crlf" else="lf">
+            <os family="windows"/>
+        </condition>
+        <fixcrlf srcdir="${nabu.sourceDirectory}/src/main/java/org/peergos"
+                 includes="BitswapBlockService.java,protocol/bitswap/BitswapEngine.java" eol="${patch.eol}" fixlast="false"/>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/BitswapBlockService.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[    @Override
+    public List<HashedBlock> get(]]></replacetoken>
+            <replacevalue><![CDATA[    /** Fetch one block, checking connected peers before consulting the DHT. */
+    public Optional<HashedBlock> getBlock(Want want) {
+        Set<PeerId> connected = bitswap.getBroadcastAudience();
+        CompletionException firstTimeout = null;
+        if (!connected.isEmpty()) {
+            try {
+                return requestBlock(want, connected);
+            } catch (CompletionException failure) {
+                if (!(failure.getCause() instanceof TimeoutException))
+                    throw failure;
+                firstTimeout = failure;
+            }
+        }
+        Set<PeerId> providers = dht.findProviders(want.cid, us, 5).join().stream()
+                .map(peer -> PeerId.fromBase58(peer.peerId.toBase58()))
+                .filter(peer -> !peer.equals(us.getPeerId()) && !connected.contains(peer))
+                .collect(Collectors.toSet());
+        if (!providers.isEmpty())
+            return requestBlock(want, providers);
+        if (firstTimeout != null)
+            throw firstTimeout;
+        return Optional.empty();
+    }
+
+    private Optional<HashedBlock> requestBlock(Want want, Set<PeerId> peers) {
+        return bitswap.get(List.of(want), us, peers, false).stream()
+                .findFirst().map(CompletableFuture::join);
+    }
+
+    @Override
+    public List<HashedBlock> get(]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/bitswap/BitswapEngine.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[        WantResult existing = localWants.get(w);
+        if (existing != null)
+            return existing.result;
+        if (addToBlockstore)
+            persistBlocks.put(w, true);
+        WantResult res = new WantResult(System.currentTimeMillis());
+        localWants.put(w, res);
+        return res.result;]]></replacetoken>
+            <replacevalue><![CDATA[        synchronized (localWants) {
+            if (addToBlockstore)
+                persistBlocks.put(w, true);
+            WantResult existing = localWants.get(w);
+            if (existing != null)
+                return existing.result;
+            WantResult res = new WantResult(System.currentTimeMillis());
+            localWants.put(w, res);
+            res.result.orTimeout(10, TimeUnit.SECONDS).whenComplete((value, failure) -> {
+                synchronized (localWants) {
+                    if (localWants.remove(w, res)) {
+                        persistBlocks.remove(w);
+                        blockHaves.remove(w);
+                    }
+                }
+            });
+            return res.result;
+        }]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/bitswap/BitswapEngine.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[                        if (persistBlocks.containsKey(w)) {
+                            store.put(data, codec);
+                            persistBlocks.remove(w);
+                        }
+                        waiter.result.complete(new HashedBlock(c, data));
+                        localWants.remove(w);]]></replacetoken>
+            <replacevalue><![CDATA[                        CompletableFuture<?> stored;
+                        try {
+                            stored = persistBlocks.containsKey(w) ? store.put(data, codec)
+                                    : CompletableFuture.completedFuture(null);
+                        } catch (RuntimeException failure) {
+                            stored = CompletableFuture.failedFuture(failure);
+                        }
+                        stored.whenComplete((ignored, failure) -> {
+                            if (failure != null)
+                                waiter.result.completeExceptionally(failure);
+                            else
+                                waiter.result.complete(new HashedBlock(c, data));
+                        });]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/bitswap/Bitswap.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[throws InterruptedException, ExecutionException {]]></replacetoken>
+            <replacevalue><![CDATA[{]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/bitswap/Bitswap.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[BitswapController controller = dial(us, peer, addr).getController().get();
+        action.accept(controller);]]></replacetoken>
+            <replacevalue><![CDATA[dial(us, peer, addr).getController().orTimeout(5, TimeUnit.SECONDS)
+                .thenAcceptAsync(action, downloadWorkers)
+                .exceptionally(failure -> {
+                    LOG.fine("Bitswap peer request failed: " + failure.getMessage());
+                    return null;
+                });]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/dht/Kademlia.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[                        StreamPromise<? extends KademliaController> conn = null;
+                        try {
+                            conn = dialPeer(r.addresses, us);
+                            return conn.getController().join()
+                                    .getProviders(block).orTimeout(2, TimeUnit.SECONDS);
+                        } catch (Exception e) {
+                            return null;
+                        } finally {
+                            if (conn != null)
+                                conn.getStream().thenApply(s -> s.close());
+                        }]]></replacetoken>
+            <replacevalue><![CDATA[                        try {
+                            var conn = dialPeer(r.addresses, us);
+                            return closeAfter(conn.getStream(), () -> conn.getController().orTimeout(2, TimeUnit.SECONDS)
+                                    .thenComposeAsync(controller -> controller.getProviders(block).orTimeout(2, TimeUnit.SECONDS)));
+                        } catch (Exception e) {
+                            return null;
+                        }]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/bitswap/Bitswap.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    } catch (Exception e) {]]></replacetoken>
+            <replacevalue><![CDATA[                    } catch (Exception e) {]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/dht/Kademlia.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[        while (true) {
+            if (providers.size() >= desiredCount)]]></replacetoken>
+            <replacevalue><![CDATA[        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8);
+        while (true) {
+            if (System.nanoTime() - deadline >= 0)
+                throw new CompletionException(new TimeoutException("IPFS provider discovery timed out"));
+            if (providers.size() >= desiredCount)]]></replacevalue>
+        </replace>
+    </target>
+</project>

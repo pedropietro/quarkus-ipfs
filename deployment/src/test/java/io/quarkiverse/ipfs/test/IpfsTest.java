@@ -17,7 +17,6 @@ public class IpfsTest {
     @RegisterExtension
     static final QuarkusExtensionTest unitTest = new QuarkusExtensionTest()
             .setArchiveProducer(() -> ShrinkWrap.create(JavaArchive.class))
-            .overrideConfigKey("quarkus.ipfs.async-bootstrap", "false")
             .overrideConfigKey("quarkus.ipfs.run-bitswap", "false");
 
     @Inject

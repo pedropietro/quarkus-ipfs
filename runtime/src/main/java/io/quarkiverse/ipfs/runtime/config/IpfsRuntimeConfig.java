@@ -32,11 +32,10 @@ public interface IpfsRuntimeConfig {
     Optional<List<String>> bootstrapAddresses();
 
     /**
-     * Filesystem path used when {@code storage-type=FILE}.
+     * Dedicated filesystem directory required when {@code storage-type=FILE}.
      * Ignored when using the default RAM storage.
      */
-    @WithDefault("${user.home}/.ipfs")
-    String storagePath();
+    Optional<String> storagePath();
 
     /**
      * Whether to actively provide (announce) blocks to the DHT.
@@ -47,14 +46,14 @@ public interface IpfsRuntimeConfig {
 
     /**
      * Whether to enable the Bitswap 1.2.0 block-exchange protocol.
-     * Disable to reduce startup time in isolated/test environments.
+     * When disabled, block reads use the local store only. The node does not exchange blocks with peers.
      */
     @WithDefault("true")
     boolean runBitswap();
 
     /**
-     * Whether to run DHT bootstrap asynchronously.
-     * Set to {@code false} in tests to ensure the node is fully bootstrapped before proceeding.
+     * Skip the initial synchronous DHT routing-table refresh.
+     * Configured bootstrap peers are still contacted during startup, and periodic refresh runs in the background.
      */
     @WithDefault("true")
     boolean asyncBootstrap();
