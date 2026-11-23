@@ -10,6 +10,8 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 import org.peergos.EmbeddedIpfs;
 
 import io.quarkiverse.ipfs.runtime.IpfsClient;
+import io.quarkiverse.ipfs.runtime.health.IpfsHealthCheck;
+import io.quarkus.arc.Arc;
 import io.quarkus.test.QuarkusExtensionTest;
 
 public class IpfsTest {
@@ -40,5 +42,13 @@ public class IpfsTest {
     public void testNodeHasPositiveMaxBlockSize() {
         Assertions.assertTrue(embeddedIpfs.maxBlockSize() > 0,
                 "maxBlockSize must be positive");
+    }
+
+    @Test
+    public void startsWithoutSmallRyeHealth() {
+        Assertions.assertNull(getClass().getClassLoader()
+                .getResource("io/quarkus/smallrye/health/runtime/SmallRyeHealthRecorder.class"));
+        Assertions.assertFalse(Arc.container().instance(IpfsHealthCheck.class).isAvailable());
+        Assertions.assertFalse(embeddedIpfs.node.listenAddresses().isEmpty());
     }
 }

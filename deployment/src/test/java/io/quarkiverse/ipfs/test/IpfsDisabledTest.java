@@ -2,6 +2,8 @@ package io.quarkiverse.ipfs.test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.peergos.EmbeddedIpfs;
@@ -14,12 +16,15 @@ import io.quarkiverse.ipfs.runtime.IpnsService;
 import io.quarkiverse.ipfs.runtime.SwarmService;
 import io.quarkiverse.ipfs.runtime.health.IpfsHealthCheck;
 import io.quarkus.arc.Arc;
+import io.quarkus.maven.dependency.Dependency;
 import io.quarkus.test.QuarkusExtensionTest;
 
 class IpfsDisabledTest {
 
     @RegisterExtension
     static final QuarkusExtensionTest APP = new QuarkusExtensionTest()
+            .setForcedDependencies(List.of(
+                    Dependency.of("io.quarkus", "quarkus-smallrye-health", System.getProperty("ipfs.test.quarkus-version"))))
             .withApplicationRoot(jar -> {
             })
             .overrideConfigKey("quarkus.ipfs.enabled", "false");

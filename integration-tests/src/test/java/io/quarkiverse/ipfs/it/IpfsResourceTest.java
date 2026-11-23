@@ -53,6 +53,6 @@ public class IpfsResourceTest {
     @Test
     public void reportsReadiness() {
         given().when().get("/q/health/ready").then().statusCode(200)
-                .body(containsString("\"status\": \"UP\"")).body(containsString("ipfs"));
+                .body("status", is("UP")).body("checks.find { it.name == 'ipfs' }.status", is("UP"));
     }
 }
