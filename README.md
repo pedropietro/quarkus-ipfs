@@ -106,4 +106,27 @@ bash ./mvnw -B -pl deployment,integration-tests -am clean verify \
 
 GitHub Actions publishes the Surefire and Failsafe reports for the JVM and native jobs. [Build workflow](.github/workflows/build.yml)
 
+### Verify UnixFS with Kubo
+
+Build the integration-test JAR with the JVM command above and start a fresh copy of the application.
+
+```sh
+java -jar integration-tests/target/quarkus-app/quarkus-run.jar
+```
+
+In another terminal, start Kubo offline and run the block exchange from the repository root.
+
+```sh
+docker run --rm -d --network none --name quarkus-ipfs-kubo --entrypoint sh ipfs/kubo:v0.43.1 -ec '
+  ipfs init --profile=test
+  exec ipfs daemon --offline
+'
+# Wait for "Daemon is ready" in docker logs before starting the test.
+QUARKUS_URL=http://127.0.0.1:8080 KUBO_CONTAINER=quarkus-ipfs-kubo \
+  bash integration-tests/src/test/scripts/kubo-unixfs.sh
+docker stop quarkus-ipfs-kubo
+```
+
+The test transfers blocks by CID and verifies that both implementations read the original multiblock file and its directory entry.
+
 [Maven Central release preparation](docs/publishing-central.md)
