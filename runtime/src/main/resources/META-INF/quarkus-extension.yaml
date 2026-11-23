@@ -1,0 +1,15 @@
+name: Ipfs
+description: Embeds an IPFS node (via Nabu) in your Quarkus application with CDI injection, block/file/IPNS operations, health checks, and Dev Services.
+metadata:
+  keywords:
+    - ipfs
+    - p2p
+    - distributed-storage
+    - nabu
+    - libp2p
+  guide: https://docs.quarkiverse.io/quarkus-ipfs/dev/
+  categories:
+    - "data"
+  status: "experimental"
+  config:
+    - quarkus.ipfs

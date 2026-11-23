@@ -1,0 +1,33 @@
+= Quarkus Ipfs
+
+include::./includes/attributes.adoc[]
+
+TIP: Describe what the extension does here.
+
+== Installation
+
+Use Java 21 or newer and an application built with Quarkus 4.0.
+The Quarkus BOM supplies the Netty 4.2 and Vert.x 5 dependencies used by this extension.
+Add the `io.quarkiverse.ipfs:quarkus-ipfs` dependency to your build file.
+
+With Maven, add the following to your `pom.xml`:
+
+[source,xml,subs=attributes+]
+----
+<dependency>
+    <groupId>io.quarkiverse.ipfs</groupId>
+    <artifactId>quarkus-ipfs</artifactId>
+    <version>{project-version}</version>
+</dependency>
+----
+
+With Gradle, add the following to your `build.gradle`:
+
+[source,gradle,subs=attributes+]
+----
+implementation("io.quarkiverse.ipfs:quarkus-ipfs:{project-version}")
+----
+
+== Usage
+
+TIP: Add a minimal usage example here.
