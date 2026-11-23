@@ -61,7 +61,7 @@ class IpfsProcessor {
         int defaultPort = launchMode.getLaunchMode() != LaunchMode.NORMAL && devServices.enabled() && ipfsDevServices.enabled()
                 ? ipfsDevServices.port()
                 : 0;
-        var node = recorder.start(defaultPort, shutdown);
+        var node = recorder.start(defaultPort, config.storageType(), shutdown);
         return List.of(
                 SyntheticBeanBuildItem.configure(EmbeddedIpfs.class)
                         .scope(Singleton.class).unremovable().runtimeValue(node).setRuntimeInit().done(),

@@ -111,6 +111,8 @@ O módulo nabu-upstream aplica lifecycle.xml às fontes verificadas do commit fi
 
 ### PR 2 · Blocos e configuração
 
+A API de blocos entrega falhas pelo CompletableFuture. CID inválido gera IllegalArgumentException, ausência gera NoSuchElementException, falhas de rede geram BlockFetchException e falhas de disco preservam a causa de I/O. A busca remota tem um limite de 30 segundos para a resposta. O Nabu expira requisições pendentes por bloco e limita a descoberta de provedores. Cancelar o future do chamador não garante cancelar todas as operações de rede iniciadas pelo libp2p.
+
 - Em `runtime/src/main/java/io/quarkiverse/ipfs/runtime/IpfsRecorder.java`, selecionar `RamBlockstore` ou `FileBlockstore` conforme a configuração. Com `FILE`, criar o diretório dedicado quando necessário e falhar com diagnóstico se ele for inválido ou inacessível. Exigir que o caminho seja explicitado nesse modo, para o usuário escolher onde os blocos serão gravados.
 - Em `runtime/src/main/java/io/quarkiverse/ipfs/runtime/BlockService.java`, usar o executor gerenciado no I/O e estabelecer os contratos de leitura local, busca remota e falhas. Em `runtime/src/main/java/io/quarkiverse/ipfs/runtime/config/`, alinhar `IpfsBuildTimeConfig.java` e `IpfsRuntimeConfig.java` à implementação e documentar o alcance de `async-bootstrap`, `run-bitswap` e `metrics-enabled`.
 - Em `integration-tests/src/test/java/io/quarkiverse/ipfs/it/IpfsResourceTest.java`, substituir a dependência de ordem pelo ciclo autocontido de gravação, leitura, comparação e remoção. Retirar chaves inertes de `integration-tests/src/main/resources/application.properties` e de `deployment/src/test/java/io/quarkiverse/ipfs/test/IpfsTest.java`.

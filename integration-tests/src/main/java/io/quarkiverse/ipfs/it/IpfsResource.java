@@ -16,11 +16,16 @@
 */
 package io.quarkiverse.ipfs.it;
 
+import java.util.NoSuchElementException;
+import java.util.concurrent.ExecutionException;
+
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
@@ -68,7 +73,17 @@ public class IpfsResource {
     @Path("/block/{cid}")
     @Produces(MediaType.APPLICATION_OCTET_STREAM)
     public byte[] getBlock(@PathParam("cid") String cid) throws Exception {
-        return blockService.get(cid).get();
+        try {
+            return blockService.get(cid).get();
+        } catch (ExecutionException failure) {
+            if (failure.getCause() instanceof IllegalArgumentException invalid) {
+                throw new BadRequestException(invalid);
+            }
+            if (failure.getCause() instanceof NoSuchElementException missing) {
+                throw new NotFoundException(missing);
+            }
+            throw failure;
+        }
     }
 
     @GET
