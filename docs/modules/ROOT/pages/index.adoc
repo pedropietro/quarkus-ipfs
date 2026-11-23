@@ -11,6 +11,15 @@ Use the Maven coordinates `io.github.pedropietro:quarkus-ipfs` with a published 
 Configure JitPack in the consumer if its repository policy requires it.
 The README includes a complete REST resource that injects `BlockService`, writes a block, and reads it by CID. https://github.com/pedropietro/quarkus-ipfs#quick-start[Installation and CDI example]
 
+== UnixFS files and directories
+
+Use `DagService` to add files, read a file by its root CID, and create or list named directory entries.
+New UnixFS directories have a deterministic link order.
+The extension writes raw leaves and reads raw files and DAG-PB UnixFS files, including inline data and nested file nodes.
+Read operations return a byte array for the complete file.
+Keep the blocks for existing CIDs. The extension recognizes the multiblock file layout produced by versions through 0.2.0 and reads the names in directories written by those versions.
+The legacy file format remains readable by Quarkus IPFS. For a standard UnixFS file CID, import the file again and use the new CID.
+
 == Storage and identity
 
 The default storage backend, `RAM`, keeps blocks in memory for one application run.

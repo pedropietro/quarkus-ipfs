@@ -131,6 +131,10 @@ class IpfsNativeProcessor {
         // The port mapper creates socket addresses for device discovery in static initializers.
         runtimePackages.produce(new RuntimeInitializedPackageBuildItem("com.offbynull.portmapper"));
 
+        // These generated Protobuf descriptors depend on each other during initialization.
+        runtimeInit.produce(new RuntimeInitializedClassBuildItem("com.google.protobuf.DescriptorProtos"));
+        runtimeInit.produce(new RuntimeInitializedClassBuildItem("com.google.protobuf.JavaFeaturesProto"));
+
         // Start with a fresh Prometheus registry and randomly striped counters.
         runtimeInit.produce(new RuntimeInitializedClassBuildItem("io.prometheus.client.CollectorRegistry"));
         runtimeInit.produce(new RuntimeInitializedClassBuildItem("io.prometheus.client.Striped64"));
