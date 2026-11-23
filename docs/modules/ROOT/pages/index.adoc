@@ -7,8 +7,8 @@ The extension also provides peer, DAG, and IPNS operations.
 == Installation and CDI
 
 Use Java 21 or newer and the Quarkus 4.0.0 BOM.
-Install the snapshot into your Maven repository from the GitHub source checkout.
-Add the local snapshot and JitPack repository to the consumer application.
+Use the Maven coordinates `io.github.pedropietro:quarkus-ipfs:0.1.0`. Before the version is available in Central, install it from the GitHub source checkout.
+Configure JitPack in the consumer if its repository policy requires it.
 The README includes a complete REST resource that injects `BlockService`, writes a block, and reads it by CID. https://github.com/pedropietro/quarkus-ipfs#quick-start[Installation and CDI example]
 
 == Storage and identity

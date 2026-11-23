@@ -3,12 +3,13 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>io.quarkiverse.ipfs</groupId>
+        <groupId>io.github.pedropietro</groupId>
         <artifactId>quarkus-ipfs-parent</artifactId>
-        <version>999-SNAPSHOT</version>
+        <version>0.1.0</version>
     </parent>
     <artifactId>quarkus-ipfs</artifactId>
     <name>Quarkus Ipfs - Runtime</name>
+    <description>Runtime APIs and embedded IPFS node lifecycle for Quarkus applications.</description>
 
     <dependencies>
         <dependency>
@@ -24,7 +25,7 @@
             <artifactId>quarkus-core</artifactId>
         </dependency>
         <dependency>
-            <groupId>io.quarkiverse.ipfs</groupId>
+            <groupId>io.github.pedropietro</groupId>
             <artifactId>quarkus-ipfs-nabu</artifactId>
             <version>${project.version}</version>
         </dependency>
@@ -35,6 +36,18 @@
     </dependencies>
 
     <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <resource>
+                <directory>..</directory>
+                <targetPath>META-INF</targetPath>
+                <includes>
+                    <include>LICENSE</include>
+                </includes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>io.quarkus</groupId>
