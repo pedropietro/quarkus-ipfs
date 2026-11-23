@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="nabu-ipns">
+    <!-- Applied to the SHA-256-verified upstream sources during generate-sources. -->
+    <target name="apply">
+        <condition property="patch.eol" value="crlf" else="lf">
+            <os family="windows"/>
+        </condition>
+        <fixcrlf srcdir="${nabu.sourceDirectory}/src/main/java/org/peergos"
+                 includes="EmbeddedIpfs.java,protocol/ipns/IPNS.java,protocol/ipns/IpnsRecord.java,protocol/dht/Kademlia.java,protocol/dht/RamRecordStore.java"
+                 eol="${patch.eol}" fixlast="false"/>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/EmbeddedIpfs.java" encoding="UTF-8" failOnNoReplacements="true"
+                 token="LocalDateTime.now().plusHours(hoursTtl)" value="LocalDateTime.now(java.time.ZoneOffset.UTC).plusHours(hoursTtl)"/>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/dht/Kademlia.java" encoding="UTF-8" failOnNoReplacements="true"
+                 token="LocalDateTime.now().plusHours(hours)" value="LocalDateTime.now(java.time.ZoneOffset.UTC).plusHours(hours)"/>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/dht/Kademlia.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[            return closeAfter(conn.getStream(), () -> conn.getController().join()
+                    .putValue(publisher, signedRecord));]]></replacetoken>
+            <replacevalue><![CDATA[            return conn.getController()
+                    .orTimeout(1, TimeUnit.SECONDS)
+                    .thenComposeAsync(controller -> closeAfter(conn.getStream(),
+                            () -> controller.putValue(publisher, signedRecord).orTimeout(1, TimeUnit.SECONDS)), ioExec)
+                    .exceptionally(error -> {
+                        conn.getStream().thenAccept(stream -> stream.close());
+                        return false;
+                    });]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/dht/Kademlia.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[        List<PeerAddresses> localClosest = engine.getKClosestPeers(key, minPublishes);
+        int queryParallelism = 3;
+        toQuery.addAll(localClosest.stream()
+                .limit(queryParallelism)]]></replacetoken>
+            <replacevalue><![CDATA[        List<PeerAddresses> localClosest = engine.getKClosestPeers(key, minPublishes);
+        int queryParallelism = 3;
+        toQuery.addAll(localClosest.stream()
+                .filter(this::hasTransportOverlap)
+                .limit(queryParallelism)]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/dht/Kademlia.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[                        return CompletableFuture.supplyAsync(() -> getCloserPeers(key, r.addresses, us).thenApply(res -> {
+                            List<RoutingEntry> more = new ArrayList<>();
+                            for (PeerAddresses peer : res) {
+                                if (! queried.contains(peer.peerId)) {
+                                    Id peerKey = Id.create(Hash.sha256(IPNS.getKey(peer.peerId)), 256);
+                                    RoutingEntry e = new RoutingEntry(peerKey, peer);
+                                    more.add(e);
+                                }
+                            }
+                            CompletableFuture.supplyAsync(() -> putValue(publisher, signedRecord, r.addresses, us)
+                                    .thenAccept(done -> {
+                                        if (done)
+                                            publishes.add(r.addresses.peerId);
+                                    }), ioExec);
+                            return more;
+                        }).join(), ioExec);]]></replacetoken>
+            <replacevalue><![CDATA[                        var closerPeers = CompletableFuture.supplyAsync(() -> getCloserPeers(key, r.addresses, us), ioExec)
+                                .thenCompose(result -> result)
+                                .completeOnTimeout(List.of(), 2, TimeUnit.SECONDS)
+                                .exceptionally(error -> List.of());
+                        return closerPeers.thenCombine(putValue(publisher, signedRecord, r.addresses, us), (peers, accepted) -> {
+                            if (accepted)
+                                publishes.add(r.addresses.peerId);
+                            return peers.stream()
+                                    .filter(peer -> !queried.contains(peer.peerId) && hasTransportOverlap(peer))
+                                    .map(peer -> new RoutingEntry(Id.create(Hash.sha256(peer.peerId.toBytes()), 256), peer))
+                                    .toList();
+                        });]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/ipns/IPNS.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[            LocalDateTime expiry = LocalDateTime.parse(new String(validity).substring(0, validity.length - 1), IPNS.rfc3339nano);
+            if (expiry.isBefore(LocalDateTime.now()))]]></replacetoken>
+            <replacevalue><![CDATA[            LocalDateTime expiry = OffsetDateTime.parse(new String(validity, StandardCharsets.UTF_8))
+                    .withOffsetSameInstant(ZoneOffset.UTC).toLocalDateTime();
+            if (!expiry.isAfter(LocalDateTime.now(ZoneOffset.UTC)))]]></replacevalue>
+            <replacefilter token="catch (InvalidProtocolBufferException e)" value="catch (InvalidProtocolBufferException | DateTimeParseException e)"/>
+            <replacefilter token='expiry.atOffset(ZoneOffset.UTC).format(rfc3339nano)+"Z"'
+                           value="DateTimeFormatter.ISO_INSTANT.format(expiry.toInstant(ZoneOffset.UTC))"/>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/ipns/IpnsRecord.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[        if (sequence != b.sequence)
+            return (int)(sequence - b.sequence);
+        if (expiry.isBefore(b.expiry))
+            return -1;
+        return 0;]]></replacetoken>
+            <replacevalue><![CDATA[        int order = Long.compareUnsigned(sequence, b.sequence);
+        return order != 0 ? order : expiry.compareTo(b.expiry);]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/dht/RamRecordStore.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[        IpnsRecord existing = records.get(peerId);
+        if (existing == null || existing.compareTo(record) < 0)
+            records.put(peerId, record);]]></replacetoken>
+            <replacevalue><![CDATA[        records.compute(peerId, (key, existing) ->
+                existing == null || expired(existing) || existing.compareTo(record) < 0 ? record : existing);]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/dht/RamRecordStore.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[        return Optional.ofNullable(records.get(peerId));
+    }]]></replacetoken>
+            <replacevalue><![CDATA[        return Optional.ofNullable(records.get(peerId)).filter(record -> !expired(record));
+    }
+
+    private static boolean expired(IpnsRecord record) {
+        return !record.expiry.isAfter(java.time.LocalDateTime.now(java.time.ZoneOffset.UTC));
+    }]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/dht/Kademlia.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[        List<IpnsRecord> candidates = Collections.synchronizedList(new ArrayList<>());
+        Optional<IpnsRecord> local = engine.getRecord(publisher);]]></replacetoken>
+            <replacevalue><![CDATA[        List<IpnsRecord> candidates = new ArrayList<>();
+        Optional<IpnsRecord> local = engine.getRecord(publisher);]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/dht/Kademlia.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[        SortedSet<RoutingEntry> toQuery = Collections.synchronizedSortedSet(new TreeSet<>((a, b) -> compareKeys(a, b, keyId)));
+        List<PeerAddresses> localClosest = engine.getKClosestPeers(key, 20);]]></replacetoken>
+            <replacevalue><![CDATA[        SortedSet<RoutingEntry> toQuery = new TreeSet<>((a, b) -> compareKeys(a, b, keyId));
+        List<PeerAddresses> localClosest = engine.getKClosestPeers(key, 20);]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/dht/Kademlia.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[        Set<Multihash> queried = Collections.synchronizedSet(new HashSet<>());
+        int countdown = 20;
+        while (! toQuery.isEmpty()) {
+            int remaining = toQuery.size() - 3;
+            List<RoutingEntry> thisRound = toQuery.stream()
+                    .limit(queryParallelism)
+                    .collect(Collectors.toList());
+            List<CompletableFuture<Void>> futures = thisRound.stream()
+                    .map(r -> {
+                        toQuery.remove(r);
+                        queried.add(r.addresses.peerId);
+                        return getValueFromPeer(r.addresses, publisher, us).thenAccept(get ->
+                                get.ifPresent(g -> {
+                                    if (g.record.isPresent() && g.record.get().publisher.equals(publisher))
+                                        candidates.add(g.record.get().value);
+                                    for (PeerAddresses peer : g.closerPeers) {
+                                        if (!queried.contains(peer.peerId) && hasTransportOverlap(peer)) {
+                                            Id peerKey = Id.create(Hash.sha256(IPNS.getKey(peer.peerId)), 256);
+                                            RoutingEntry e = new RoutingEntry(peerKey, peer);
+                                            toQuery.add(e);
+                                        }
+                                    }
+                                }));
+                    })
+                    .collect(Collectors.toList());
+            futures.forEach(f -> {
+                try {
+                    if (candidates.size() >= minResults)
+                        return;
+                    f.orTimeout(5, TimeUnit.SECONDS).join();
+                } catch (Exception e) {}
+            });
+            // exit early if we have enough results
+            if (candidates.size() >= minResults)
+                break;
+            if (toQuery.size() == remaining)
+                countdown--;
+            if (countdown <= 0)
+                break;
+        }]]></replacetoken>
+            <replacevalue><![CDATA[        Set<Multihash> queried = new HashSet<>();
+        for (int round = 0; round < 20 && !toQuery.isEmpty(); round++) {
+            List<RoutingEntry> peers = toQuery.stream().limit(queryParallelism).toList();
+            toQuery.removeAll(peers);
+            peers.forEach(peer -> queried.add(peer.addresses.peerId));
+            var responses = peers.stream()
+                    .map(peer -> getValueFromPeer(peer.addresses, publisher, us)
+                            .completeOnTimeout(Optional.empty(), 5, TimeUnit.SECONDS))
+                    .toList();
+            // Finish the current batch before checking the target: a slower peer may have a newer record.
+            for (var response : responses) {
+                response.join().ifPresent(result -> {
+                    result.record.filter(record -> record.publisher.equals(publisher))
+                            .ifPresent(record -> candidates.add(record.value));
+                    for (PeerAddresses peer : result.closerPeers) {
+                        if (!queried.contains(peer.peerId) && hasTransportOverlap(peer)) {
+                            toQuery.add(new RoutingEntry(Id.create(Hash.sha256(peer.peerId.toBytes()), 256), peer));
+                        }
+                    }
+                });
+            }
+            candidates.removeIf(record -> !record.expiry.isAfter(LocalDateTime.now(java.time.ZoneOffset.UTC)));
+            if (candidates.size() >= minResults)
+                break;
+        }]]></replacevalue>
+        </replace>
+    </target>
+</project>
