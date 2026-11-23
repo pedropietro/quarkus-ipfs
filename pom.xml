@@ -110,6 +110,9 @@
             <id>central-release</id>
             <properties>
                 <maven.javadoc.failOnError>true</maven.javadoc.failOnError>
+                <central.release.skip-upload>true</central.release.skip-upload>
+                <central.release.auto-publish>false</central.release.auto-publish>
+                <central.release.wait-until>validated</central.release.wait-until>
             </properties>
             <build>
                 <plugins>
@@ -152,7 +155,11 @@
                         <version>0.12.0</version>
                         <extensions>true</extensions>
                         <configuration>
-                            <skipUpload>true</skipUpload>
+                            <publishingServerId>central</publishingServerId>
+                            <skipUpload>${central.release.skip-upload}</skipUpload>
+                            <autoPublish>${central.release.auto-publish}</autoPublish>
+                            <waitUntil>${central.release.wait-until}</waitUntil>
+                            <waitMaxTime>3600</waitMaxTime>
                         </configuration>
                     </plugin>
                 </plugins>
