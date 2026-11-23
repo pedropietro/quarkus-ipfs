@@ -180,6 +180,7 @@
                                 </unzip>
                                 <ant antfile="${project.basedir}/lifecycle.xml" target="apply"/>
                                 <ant antfile="${project.basedir}/block-fetch.xml" target="apply"/>
+                                <ant antfile="${project.basedir}/ipns.xml" target="apply"/>
                             </target>
                         </configuration>
                     </execution>

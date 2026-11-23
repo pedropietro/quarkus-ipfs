@@ -1,11 +1,16 @@
 package io.quarkiverse.ipfs.runtime;
 
-import java.util.List;
+import static java.nio.charset.StandardCharsets.UTF_8;
+
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import jakarta.inject.Inject;
 
+import org.eclipse.microprofile.context.ManagedExecutor;
 import org.peergos.EmbeddedIpfs;
 import org.peergos.protocol.ipns.IpnsRecord;
 
@@ -15,7 +20,6 @@ import io.libp2p.core.crypto.PrivKey;
 
 /**
  * IPNS publish and resolve operations.
- * Uses {@link EmbeddedIpfs#publishValue} and {@link EmbeddedIpfs#resolveValue}.
  */
 public class IpnsService {
 
@@ -24,6 +28,9 @@ public class IpnsService {
 
     @Inject
     IpfsNodeInfo nodeInfo;
+
+    @Inject
+    ManagedExecutor executor;
 
     /**
      * Publish a value (typically {@code /ipfs/<CID>}) under this node's IPNS name.
@@ -34,27 +41,31 @@ public class IpnsService {
      * @return number of DHT peers that received the record
      */
     public CompletableFuture<Integer> publish(String value, long sequence, int hoursTtl) {
-        PrivKey privKey = nodeInfo.getPrivateKey();
-        byte[] valueBytes = value.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        return ipfs.publishValue(privKey, valueBytes, Optional.empty(), Optional.empty(), sequence, hoursTtl);
+        return CompletableFuture.supplyAsync(() -> {
+            PrivKey privKey = nodeInfo.getPrivateKey();
+            return ipfs.publishValue(privKey, value.getBytes(UTF_8), Optional.empty(), Optional.empty(), sequence, hoursTtl);
+        }, executor).thenCompose(result -> result);
     }
 
     /**
      * Resolve an IPNS name to its current published value.
      *
      * @param peerIdBase58 base58-encoded PeerId of the publisher
-     * @param minResults minimum number of DHT results to wait for before returning
-     * @return the published value as a string
+     * @param minResults target number of valid records to collect before stopping the DHT lookup
+     * @return the value with the highest sequence among the valid records found, or a failed future
+     *         if no valid record is found or the lookup times out
      */
     public CompletableFuture<String> resolve(String peerIdBase58, int minResults) {
         return CompletableFuture.supplyAsync(() -> {
             Multihash multihash = Multihash.deserialize(PeerId.fromBase58(peerIdBase58).getBytes());
-            List<IpnsRecord> records = ipfs.resolveRecords(multihash, minResults);
-            if (records.isEmpty()) {
-                throw new IllegalStateException("No IPNS records found for: " + peerIdBase58);
-            }
-            return new String(records.get(0).value, java.nio.charset.StandardCharsets.UTF_8);
-        });
+            var records = ipfs.resolveRecords(multihash, minResults);
+            var now = LocalDateTime.now(ZoneOffset.UTC);
+            return records.stream()
+                    .filter(record -> record.expiry.isAfter(now))
+                    .max(IpnsRecord::compareTo)
+                    .map(record -> new String(record.value, UTF_8))
+                    .orElseThrow(() -> new IllegalStateException("No valid IPNS records found for: " + peerIdBase58));
+        }, executor).orTimeout(30, TimeUnit.SECONDS);
     }
 
     /**

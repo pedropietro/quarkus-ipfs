@@ -20,6 +20,18 @@ Read operations return a byte array for the complete file.
 Keep the blocks for existing CIDs. The extension recognizes the multiblock file layout produced by versions through 0.2.0 and reads the names in directories written by those versions.
 The legacy file format remains readable by Quarkus IPFS. For a standard UnixFS file CID, import the file again and use the new CID.
 
+== IPNS names
+
+Inject `IpnsService` to publish a signed value under the local peer ID and resolve values published by peers.
+Call `publish(value, sequence, hoursTtl)` with a path such as `/ipfs/<CID>` and increase the sequence each time the value changes.
+The record expires after the given number of hours. Use `getLocalIpnsName()` to obtain the base58 peer ID.
+
+Call `resolve(peerId, minResults)` with the publisher's base58 peer ID.
+The lookup finishes the current batch of peer queries after reaching the requested number of valid records.
+It returns the highest sequence among the records found, using the later expiration time to break a tie.
+The future fails when the lookup times out or finds no valid records.
+Configure `quarkus.ipfs.bootstrap-addresses` to join the DHT and share records with other peers.
+
 == Storage and identity
 
 The default storage backend, `RAM`, keeps blocks in memory for one application run.
