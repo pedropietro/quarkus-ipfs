@@ -4,7 +4,7 @@ Quarkus IPFS embeds a Peergos Nabu node in a Quarkus application. Inject CDI ser
 
 ## Quick start
 
-Use Java 21 or newer and a Maven application with the Quarkus 4.0.0 BOM. Quarkus IPFS 0.1.0 is available from Maven Central. [Quarkus IPFS 0.1.0 on Maven Central](https://central.sonatype.com/artifact/io.github.pedropietro/quarkus-ipfs/0.1.0)
+Use Java 21 or newer and a Maven application with the Quarkus 4.0.0 BOM. Choose an available release from Maven Central. [Quarkus IPFS on Maven Central](https://central.sonatype.com/artifact/io.github.pedropietro/quarkus-ipfs)
 
 Add this dependency under `<dependencies>` in your application's `pom.xml`.
 
@@ -12,7 +12,7 @@ Add this dependency under `<dependencies>` in your application's `pom.xml`.
 <dependency>
     <groupId>io.github.pedropietro</groupId>
     <artifactId>quarkus-ipfs</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 
