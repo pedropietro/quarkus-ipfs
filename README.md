@@ -4,7 +4,7 @@ Quarkus IPFS embeds a Peergos Nabu node in a Quarkus application. Inject CDI ser
 
 ## Quick start
 
-Use Java 21 or newer and a Maven application with the Quarkus 4.0.0 BOM. The GitHub repository is the distribution channel for this snapshot. Install it into your local Maven repository before adding it to an application.
+Use Java 21 or newer and a Maven application with the Quarkus 4.0.0 BOM. The release coordinates are `io.github.pedropietro:quarkus-ipfs:0.1.0`. Once the version is available in Maven Central, add the dependency directly. To try the same version from a source checkout, install it in your local Maven repository first.
 
 ```sh
 git clone https://github.com/pedropietro/quarkus-ipfs.git
@@ -18,13 +18,13 @@ In a Quarkus REST application, add this dependency to `pom.xml` under `<dependen
 
 ```xml
 <dependency>
-    <groupId>io.quarkiverse.ipfs</groupId>
+    <groupId>io.github.pedropietro</groupId>
     <artifactId>quarkus-ipfs</artifactId>
-    <version>999-SNAPSHOT</version>
+    <version>0.1.0</version>
 </dependency>
 ```
 
-The example uses `io.quarkus:quarkus-rest`. Add it if the application does not already use Quarkus REST. Ensure the application can resolve dependencies from Maven Central and JitPack. Add the following to its existing `<repositories>` section, or create that section.
+The example uses `io.quarkus:quarkus-rest`. Add it if the application does not already use Quarkus REST. Ensure the application can resolve dependencies from Maven Central and JitPack. If your repository policy ignores repositories declared by dependencies, add the following to your application's existing `<repositories>` section, or create that section.
 
 ```xml
 <repository>
@@ -101,3 +101,5 @@ bash ./mvnw -B -pl deployment,integration-tests -am clean verify \
 ```
 
 GitHub Actions publishes the Surefire and Failsafe reports for the JVM and native jobs. [Build workflow](.github/workflows/build.yml)
+
+[Maven Central release preparation](docs/publishing-central.md)
