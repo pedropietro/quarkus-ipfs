@@ -1,13 +1,12 @@
 package io.quarkiverse.ipfs.deployment;
 
 import java.util.List;
-import java.util.Optional;
 
 import jakarta.inject.Singleton;
 
+import org.jboss.jandex.DotName;
 import org.peergos.EmbeddedIpfs;
 
-import io.quarkiverse.ipfs.deployment.devservices.IpfsDevServicesBuildItem;
 import io.quarkiverse.ipfs.runtime.BlockService;
 import io.quarkiverse.ipfs.runtime.DagService;
 import io.quarkiverse.ipfs.runtime.IpfsClient;
@@ -16,89 +15,57 @@ import io.quarkiverse.ipfs.runtime.IpfsRecorder;
 import io.quarkiverse.ipfs.runtime.IpnsService;
 import io.quarkiverse.ipfs.runtime.SwarmService;
 import io.quarkiverse.ipfs.runtime.config.IpfsBuildTimeConfig;
-import io.quarkiverse.ipfs.runtime.config.IpfsRuntimeConfig;
+import io.quarkiverse.ipfs.runtime.config.IpfsDevServicesConfig;
 import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
 import io.quarkus.arc.deployment.SyntheticBeanBuildItem;
-import io.quarkus.arc.deployment.UnremovableBeanBuildItem;
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.ExecutionTime;
 import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
+import io.quarkus.deployment.builditem.LaunchModeBuildItem;
 import io.quarkus.deployment.builditem.ShutdownContextBuildItem;
-import io.quarkus.runtime.RuntimeValue;
+import io.quarkus.deployment.dev.devservices.DevServicesConfig;
+import io.quarkus.runtime.LaunchMode;
 
 class IpfsProcessor {
 
-    private static final String FEATURE = "ipfs";
-
     @BuildStep
     FeatureBuildItem feature() {
-        return new FeatureBuildItem(FEATURE);
+        return new FeatureBuildItem("ipfs");
     }
 
     @BuildStep
-    UnremovableBeanBuildItem unremovableRuntimeConfig() {
-        return UnremovableBeanBuildItem.beanTypes(IpfsRuntimeConfig.class);
-    }
-
-    @BuildStep
-    AdditionalBeanBuildItem additionalBeans(IpfsBuildTimeConfig buildTimeConfig) {
-        if (!buildTimeConfig.enabled()) {
-            return AdditionalBeanBuildItem.unremovableOf(IpfsClient.class);
+    AdditionalBeanBuildItem additionalBeans(IpfsBuildTimeConfig config) {
+        if (!config.enabled()) {
+            return null;
         }
         return AdditionalBeanBuildItem.builder()
                 .setUnremovable()
-                .addBeanClasses(
-                        IpfsClient.class,
-                        BlockService.class,
-                        DagService.class,
-                        IpnsService.class,
-                        SwarmService.class)
+                .setDefaultScope(DotName.createSimple("jakarta.enterprise.context.ApplicationScoped"))
+                .addBeanClasses(IpfsClient.class, BlockService.class, DagService.class, IpnsService.class, SwarmService.class)
                 .build();
     }
 
     @BuildStep
     @Record(ExecutionTime.RUNTIME_INIT)
     List<SyntheticBeanBuildItem> produceIpfsBeans(
-            IpfsBuildTimeConfig buildTimeConfig,
+            IpfsBuildTimeConfig config,
+            IpfsDevServicesConfig ipfsDevServices,
+            DevServicesConfig devServices,
+            LaunchModeBuildItem launchMode,
             IpfsRecorder recorder,
-            ShutdownContextBuildItem shutdownContextBuildItem,
-            Optional<IpfsDevServicesBuildItem> devServicesBuildItem) {
-
-        if (!buildTimeConfig.enabled()) {
+            ShutdownContextBuildItem shutdown) {
+        if (!config.enabled()) {
             return List.of();
         }
-
-        RuntimeValue<IpfsNodeInfo> nodeInfoValue;
-        RuntimeValue<EmbeddedIpfs> ipfsValue;
-
-        if (devServicesBuildItem.isPresent()) {
-            // Dev Services started the node at RUNTIME_INIT — reuse its RuntimeValues
-            nodeInfoValue = devServicesBuildItem.get().getNodeInfoValue();
-            ipfsValue = devServicesBuildItem.get().getIpfsValue();
-        } else {
-            // Normal mode (or dev services disabled): start node via the main recorder
-            nodeInfoValue = recorder.createNodeInfo();
-            ipfsValue = recorder.createEmbeddedIpfs(
-                    nodeInfoValue,
-                    buildTimeConfig,
-                    shutdownContextBuildItem);
-        }
-
+        int defaultPort = launchMode.getLaunchMode() != LaunchMode.NORMAL && devServices.enabled() && ipfsDevServices.enabled()
+                ? ipfsDevServices.port()
+                : 0;
+        var node = recorder.start(defaultPort, shutdown);
         return List.of(
-                SyntheticBeanBuildItem
-                        .configure(IpfsNodeInfo.class)
-                        .scope(Singleton.class)
-                        .unremovable()
-                        .runtimeValue(nodeInfoValue)
-                        .setRuntimeInit()
-                        .done(),
-                SyntheticBeanBuildItem
-                        .configure(EmbeddedIpfs.class)
-                        .scope(Singleton.class)
-                        .unremovable()
-                        .runtimeValue(ipfsValue)
-                        .setRuntimeInit()
-                        .done());
+                SyntheticBeanBuildItem.configure(EmbeddedIpfs.class)
+                        .scope(Singleton.class).unremovable().runtimeValue(node).setRuntimeInit().done(),
+                SyntheticBeanBuildItem.configure(IpfsNodeInfo.class)
+                        .scope(Singleton.class).unremovable().runtimeValue(recorder.nodeInfo(node)).setRuntimeInit().done());
     }
 }

@@ -12,14 +12,14 @@ public interface IpfsDevServicesConfig {
     /**
      * Whether Dev Services are enabled.
      * When enabled, an in-process IPFS node is automatically started in dev/test mode
-     * so that no manual configuration is required.
+     * when the extension and global Dev Services are enabled. Disabling this option uses the regular node defaults.
      */
     @WithDefault("true")
     boolean enabled();
 
     /**
      * TCP port for the Dev Services IPFS node.
-     * Use {@code 0} (default) to let the OS assign a random available port.
+     * Use {@code 0} (default) for an ephemeral port. Explicit {@code quarkus.ipfs.swarm-addresses} takes precedence.
      */
     @WithDefault("0")
     int port();
