@@ -108,7 +108,7 @@ GitHub Actions publishes the Surefire and Failsafe reports for the JVM and nativ
 
 ### Verify UnixFS streaming with a limited heap
 
-The Build workflow reads a 96 MiB UnixFS file into a file on disk with a 64 MiB application heap and checks the output byte for byte. The packaged integration-test application uses FILE block storage in its production profile.
+The Build workflow reads a 96 MiB UnixFS file into a file on disk with a 64 MiB application heap and checks the output size and SHA-256 digest. The packaged integration-test application uses FILE block storage in its production profile.
 
 ```sh
 bash integration-tests/src/test/scripts/unixfs-stream.sh jvm integration-tests/target/quarkus-app

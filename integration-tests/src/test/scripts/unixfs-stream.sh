@@ -27,6 +27,7 @@ docker exec "$app" bash -euo pipefail -c '
     test "$heap" -le "$((64 * 1024 * 1024))"
     test "$size" -gt "$heap"
     test "$blocks" -ge 384
-    cmp /tmp/source.bin /tmp/read.bin
+    test "$(wc -c </tmp/read.bin)" -eq "$size"
+    test "$(sha256sum </tmp/source.bin)" = "$(sha256sum </tmp/read.bin)"
     printf "UnixFS streaming matched %s bytes with a %s-byte heap and %s blocks on disk.\n" "$size" "$heap" "$blocks"
 '
