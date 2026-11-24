@@ -83,4 +83,6 @@ done <<<"$kubo_dir"$'\n'"$kubo_blocks"
 test "$(request "$QUARKUS_URL/unixfs/directory/$kubo_dir")" = 'payload.bin'
 request "$QUARKUS_URL/unixfs/file/${kubo_file#/ipfs/}" >"$work/read-by-quarkus.bin"
 cmp "$work/kubo.bin" "$work/read-by-quarkus.bin"
+request "$QUARKUS_URL/unixfs/file/${kubo_file#/ipfs/}/stream" >"$work/streamed-by-quarkus.bin"
+cmp "$work/kubo.bin" "$work/streamed-by-quarkus.bin"
 printf 'Kubo -> Quarkus: multiblock file and directory entry matched.\n'

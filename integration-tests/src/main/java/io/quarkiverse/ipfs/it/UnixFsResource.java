@@ -1,6 +1,7 @@
 package io.quarkiverse.ipfs.it;
 
 import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.util.LinkedHashMap;
 import java.util.concurrent.CompletionStage;
 
@@ -13,10 +14,13 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.StreamingOutput;
 
 import io.ipfs.cid.Cid;
 import io.quarkiverse.ipfs.runtime.BlockService;
 import io.quarkiverse.ipfs.runtime.DagService;
+import io.smallrye.common.annotation.Blocking;
 
 /** HTTP access to CDI operations in the integration-test application. */
 @Path("/unixfs")
@@ -41,6 +45,24 @@ public class UnixFsResource {
     @Produces(MediaType.APPLICATION_OCTET_STREAM)
     public CompletionStage<byte[]> getFile(@PathParam("cid") String cid) {
         return dag.getFile(cid);
+    }
+
+    @POST
+    @Path("/file/stream")
+    @Consumes(MediaType.APPLICATION_OCTET_STREAM)
+    @Produces(MediaType.TEXT_PLAIN)
+    @Blocking
+    public String addStream(InputStream input) {
+        return dag.addFile("payload.bin", input).join();
+    }
+
+    @GET
+    @Path("/file/{cid}/stream")
+    @Produces(MediaType.APPLICATION_OCTET_STREAM)
+    @Blocking
+    public Response writeStream(@PathParam("cid") String cid) {
+        StreamingOutput body = output -> dag.writeFile(cid, output).join();
+        return Response.ok(body).header("X-Test-Max-Heap", Runtime.getRuntime().maxMemory()).build();
     }
 
     @POST

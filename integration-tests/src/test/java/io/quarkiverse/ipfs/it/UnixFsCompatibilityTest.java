@@ -2,8 +2,15 @@ package io.quarkiverse.ipfs.it;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.HexFormat;
@@ -46,6 +53,9 @@ class UnixFsCompatibilityTest {
                 storeDag("122d0a24" + FIRST_CHUNK + "12057a2e62696e122d0a24" + LAST_CHUNK + "1205612e62696e0a020801"));
 
         assertArrayEquals(bytes, dag.getFile(LEGACY_FILE).join());
+        var streamed = new ByteArrayOutputStream();
+        assertEquals((long) bytes.length, dag.writeFile(LEGACY_FILE, streamed).join());
+        assertArrayEquals(bytes, streamed.toByteArray());
         assertEquals(List.of("z.bin", "a.bin"), dag.listDirectory(LEGACY_DIRECTORY).join());
         assertThrows(CompletionException.class, () -> dag.getFile(LEGACY_DIRECTORY).join());
         assertThrows(CompletionException.class, () -> dag.listDirectory(LEGACY_FILE).join());
@@ -59,6 +69,42 @@ class UnixFsCompatibilityTest {
         String truncated = storeDag("0a0b0802");
         assertThrows(CompletionException.class, () -> dag.getFile(wrongSize).join());
         assertThrows(CompletionException.class, () -> dag.getFile(truncated).join());
+    }
+
+    @Test
+    void preservesWriteFailureAndLeavesStreamOpen() {
+        byte[] bytes = UnixFsResourceTest.contents(CHUNK_SIZE + 123);
+        String cid = dag.addFile("test.bin", new ByteArrayInputStream(bytes)).join();
+        var written = new ByteArrayOutputStream();
+        var diskFull = new IOException("disk full");
+        var output = new OutputStream() {
+            @Override
+            public void write(int value) {
+                throw new AssertionError("Expected a block write");
+            }
+
+            @Override
+            public void write(byte[] block, int offset, int length) throws IOException {
+                if (written.size() != 0) {
+                    throw diskFull;
+                }
+                written.write(block, offset, length);
+            }
+
+            @Override
+            public void flush() {
+                throw new AssertionError("The caller owns flushing");
+            }
+
+            @Override
+            public void close() {
+                throw new AssertionError("The caller owns closing");
+            }
+        };
+
+        var failure = assertThrows(CompletionException.class, () -> dag.writeFile(cid, output).join());
+        assertSame(diskFull, assertInstanceOf(UncheckedIOException.class, failure.getCause()).getCause());
+        assertArrayEquals(Arrays.copyOf(bytes, CHUNK_SIZE), written.toByteArray());
     }
 
     private String storeDag(String hex) {
