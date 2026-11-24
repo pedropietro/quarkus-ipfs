@@ -27,7 +27,7 @@ if (( $# > 0 )); then
         ipfs init --profile=test
         exec ipfs daemon --offline
     ' >/dev/null
-    start_app "$app" "$mode" "$artifact" --network "$network"
+    start_app "$app" "$mode" "$artifact" --network "$network" -e QUARKUS_HTTP_LIMITS_MAX_BODY_SIZE=64M
     await_ready kubo_ready "$KUBO_CONTAINER"
     await_ready docker exec "$app" curl --fail --silent --max-time 1 "$QUARKUS_URL/ipfs/node/peer-id"
 else
@@ -48,11 +48,11 @@ request() {
 }
 
 # Distinct payloads keep the two content-addressed block sets independent.
-dd if=/dev/urandom of="$work/quarkus.bin" bs=524411 count=1 status=none
+dd if=/dev/urandom of="$work/quarkus.bin" bs=262144 count=175 status=none
 dd if=/dev/urandom of="$work/kubo.bin" bs=524529 count=1 status=none
 
-quarkus_file=$(request -H 'Content-Type: application/octet-stream' --data-binary @- \
-    "$QUARKUS_URL/unixfs/file" <"$work/quarkus.bin")
+quarkus_file=$(request --max-time 120 -X POST -H 'Content-Type: application/octet-stream' --upload-file - \
+    "$QUARKUS_URL/unixfs/file/stream" <"$work/quarkus.bin")
 quarkus_dir=$(request -X POST "$QUARKUS_URL/unixfs/directory/$quarkus_file")
 quarkus_blocks=$(request "$QUARKUS_URL/ipfs/block/list" | tr -d '[] ' | tr ',' '\n')
 while IFS= read -r cid; do
@@ -65,13 +65,15 @@ while IFS= read -r cid; do
     test "$stored" = "$cid"
 done <<<"$quarkus_blocks"
 
+first_child=$(kubo refs "/ipfs/$quarkus_file" | sed -n '1p')
+[[ "$first_child" == bafybei* ]]
 kubo cat "/ipfs/$quarkus_file" >"$work/read-by-kubo.bin"
 cmp "$work/quarkus.bin" "$work/read-by-kubo.bin"
 kubo cat "/ipfs/$quarkus_dir/payload.bin" >"$work/read-by-kubo-dir.bin"
 cmp "$work/quarkus.bin" "$work/read-by-kubo-dir.bin"
-printf 'Quarkus -> Kubo: multiblock file and directory entry matched.\n'
+printf 'Quarkus -> Kubo: nested file and directory entry matched.\n'
 
-kubo_dir=$(kubo add -Q -w --pin=false --cid-version=1 --raw-leaves=false --stdin-name=payload.bin <"$work/kubo.bin")
+kubo_dir=$(kubo add -Q -w --pin=false --cid-version=1 --raw-leaves=false --max-file-links=2 --stdin-name=payload.bin <"$work/kubo.bin")
 kubo_file=$(kubo resolve "/ipfs/$kubo_dir/payload.bin")
 kubo_blocks=$(kubo refs -r -u "/ipfs/$kubo_dir")
 while IFS= read -r cid; do
@@ -85,4 +87,4 @@ request "$QUARKUS_URL/unixfs/file/${kubo_file#/ipfs/}" >"$work/read-by-quarkus.b
 cmp "$work/kubo.bin" "$work/read-by-quarkus.bin"
 request "$QUARKUS_URL/unixfs/file/${kubo_file#/ipfs/}/stream" >"$work/streamed-by-quarkus.bin"
 cmp "$work/kubo.bin" "$work/streamed-by-quarkus.bin"
-printf 'Kubo -> Quarkus: multiblock file and directory entry matched.\n'
+printf 'Kubo -> Quarkus: nested file and directory entry matched.\n'

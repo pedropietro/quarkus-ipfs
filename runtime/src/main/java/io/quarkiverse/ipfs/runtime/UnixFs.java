@@ -25,15 +25,16 @@ final class UnixFs {
     private UnixFs() {
     }
 
-    static byte[] encodeFile(List<Link> chunks) {
+    static byte[] encodeFile(List<FileLink> children, long fileSize) {
         byte[] data = encode(out -> {
             out.writeEnum(1, FILE);
-            out.writeUInt64(3, chunks.stream().mapToLong(Link::totalSize).sum());
-            for (Link chunk : chunks) {
-                out.writeUInt64(4, chunk.totalSize());
+            out.writeUInt64(3, fileSize);
+            for (FileLink child : children) {
+                out.writeUInt64(4, child.fileSize());
             }
         });
-        return encodeNode(data, chunks);
+        var links = children.stream().map(child -> new Link(child.cid(), ByteString.EMPTY, child.dagSize())).toList();
+        return encodeNode(data, links);
     }
 
     static byte[] encodeDirectory(Map<String, String> entries) {
@@ -153,6 +154,9 @@ final class UnixFs {
     @FunctionalInterface
     private interface Encoder {
         void write(CodedOutputStream output) throws IOException;
+    }
+
+    record FileLink(Cid cid, long fileSize, long dagSize) {
     }
 
     record Link(Cid cid, ByteString name, long totalSize) {
