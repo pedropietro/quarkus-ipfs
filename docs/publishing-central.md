@@ -26,6 +26,8 @@ git push origin v0.2.0
 
 The workflow accepts tags of the form `vMAJOR.MINOR.PATCH` and requires the tagged commit to be on `main` with a matching Maven version. It runs the JVM and native jobs from `Build`, signs the artifacts, and waits for Central Portal to publish them. The last step packages an independent Quarkus application with a new Maven cache, then launches the JAR and verifies a block write and read by CID through the CDI bean. [Publication workflow](../.github/workflows/publish-central.yml)
 
+The Build workflow retries Maven verification once after 15 seconds if Maven reports HTTP 429, 502, 503, or 504 while transferring an artifact. Test failures and persistent transfer errors fail the build. This retry runs before signing and upload.
+
 ## Recover a publication before upload
 
 If the tag-triggered run stops before upload, select **Re-run all jobs** on that run. This rebuilds JVM and native artifacts for the same tagged commit. The workflow permits the first upload when GitHub Actions confirms that the publication job or the upload step was skipped in every prior attempt for that tag.
