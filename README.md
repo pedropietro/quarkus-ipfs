@@ -106,6 +106,15 @@ bash ./mvnw -B -pl deployment,integration-tests -am clean verify \
 
 GitHub Actions publishes the Surefire and Failsafe reports for the JVM and native jobs. [Build workflow](.github/workflows/build.yml)
 
+### Verify UnixFS streaming with a limited heap
+
+The Build workflow reads a 96 MiB UnixFS file into a file on disk with a 64 MiB application heap and checks the output byte for byte. The packaged integration-test application uses FILE block storage in its production profile.
+
+```sh
+bash integration-tests/src/test/scripts/unixfs-stream.sh jvm integration-tests/target/quarkus-app
+bash integration-tests/src/test/scripts/unixfs-stream.sh native integration-tests/target/*-runner
+```
+
 ### Verify Kubo interoperability
 
 The Build workflow runs the UnixFS, IPNS and authenticated HTTP scenarios against the packaged JVM application and native executable. Each scenario uses Kubo v0.43.1 pinned by digest, with its own internal Docker network. The workflow uploads one log per scenario and includes container logs when a scenario fails.

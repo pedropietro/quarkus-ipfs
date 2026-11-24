@@ -21,6 +21,8 @@ public class UnixFsResourceTest {
             assertEquals(size <= 256 * 1024 ? Cid.Codec.Raw : Cid.Codec.DagProtobuf, Cid.decode(cid).codec);
             byte[] read = given().get("/unixfs/file/{cid}", cid).then().statusCode(200).extract().asByteArray();
             assertArrayEquals(bytes, read);
+            byte[] streamed = given().get("/unixfs/file/{cid}/stream", cid).then().statusCode(200).extract().asByteArray();
+            assertArrayEquals(bytes, streamed);
         }
     }
 

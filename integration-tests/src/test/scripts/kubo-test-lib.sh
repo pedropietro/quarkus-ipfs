@@ -18,13 +18,18 @@ start_app() {
     local app=$1 mode=$2 artifact=$3
     shift 3
     docker run -d --name "$app" --user 0:0 -e QUARKUS_HTTP_HOST=127.0.0.1 \
+        -e "APP_MAX_HEAP=${APP_MAX_HEAP:-}" \
         "$@" --entrypoint bash "$app_image" -ec '
             until [[ -e /tmp/start-app ]]; do sleep 0.2; done
+            heap=()
+            if [[ -n "$APP_MAX_HEAP" ]]; then
+                heap=("-Xmx$APP_MAX_HEAP")
+            fi
             if [[ "$1" == jvm ]]; then
-                exec java -jar /tmp/quarkus-app/quarkus-run.jar
+                exec java "${heap[@]}" -jar /tmp/quarkus-app/quarkus-run.jar
             fi
             chmod +x /tmp/ipfs-runner
-            exec /tmp/ipfs-runner
+            exec /tmp/ipfs-runner "${heap[@]}"
         ' bash "$mode" >/dev/null
     if [[ "$mode" == jvm ]]; then
         docker cp "$artifact" "$app:/tmp/quarkus-app"

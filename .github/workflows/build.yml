@@ -64,12 +64,13 @@ jobs:
         if: matrix.java == '21'
         run: python3 -B -m unittest discover -s .github/scripts -v
 
-      - name: Verify Kubo interoperability (JVM)
+      - name: Verify Kubo interoperability and UnixFS streaming (JVM)
         if: matrix.java != '21'
         timeout-minutes: 8
         run: |
           bash integration-tests/src/test/scripts/kubo-ci.sh jvm \
             integration-tests/target/quarkus-app "$RUNNER_TEMP/kubo-logs"
+          bash integration-tests/src/test/scripts/unixfs-stream.sh jvm integration-tests/target/quarkus-app
 
       - name: Upload Kubo JVM logs
         if: always() && matrix.java != '21'
@@ -116,7 +117,7 @@ jobs:
             -Dquarkus.native.container-build=true "-Dquarkus.native.builder-image=$builder_digest" \
             -Dnative.surefire.skip=true
 
-      - name: Verify Kubo interoperability (native)
+      - name: Verify Kubo interoperability and UnixFS streaming (native)
         timeout-minutes: 8
         env:
           APP_IMAGE: ${{ steps.native-build.outputs.builder_image }}
@@ -129,6 +130,7 @@ jobs:
           fi
           bash integration-tests/src/test/scripts/kubo-ci.sh native \
             "${runners[0]}" "$RUNNER_TEMP/kubo-logs"
+          bash integration-tests/src/test/scripts/unixfs-stream.sh native "${runners[0]}"
 
       - name: Upload Kubo native logs
         if: always()

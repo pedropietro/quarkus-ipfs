@@ -3,10 +3,12 @@ package io.quarkiverse.ipfs.runtime;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
 import jakarta.inject.Inject;
@@ -40,9 +42,18 @@ public class DagService {
     /** Read a raw or DAG-PB UnixFS file into memory. */
     public CompletableFuture<byte[]> getFile(String cidString) {
         var output = new ByteArrayOutputStream();
+        return writeFile(cidString, output).thenApply(ignored -> output.toByteArray());
+    }
+
+    /**
+     * Write a raw or DAG-PB UnixFS file to the caller's stream and return the number of bytes written.
+     * Blocks are read and written in file order using the managed executor.
+     * The caller keeps the stream open until completion and owns flushing and closing it.
+     * On failure, including an {@link UncheckedIOException} from the stream, the output may contain partial data.
+     */
+    public CompletableFuture<Long> writeFile(String cidString, OutputStream output) {
         return CompletableFuture.completedFuture(cidString)
-                .thenCompose(cid -> appendFile(Cid.decode(cid), output))
-                .thenApply(ignored -> output.toByteArray());
+                .thenCompose(cid -> appendFile(Cid.decode(cid), Objects.requireNonNull(output)));
     }
 
     /** Store a directory whose entries link names to existing CIDs. */
@@ -87,17 +98,17 @@ public class DagService {
         }
     }
 
-    private CompletableFuture<Long> appendFile(Cid cid, ByteArrayOutputStream output) {
+    private CompletableFuture<Long> appendFile(Cid cid, OutputStream output) {
         if (cid.codec == Cid.Codec.Raw) {
             return blockService.get(cid.toString()).thenApplyAsync(bytes -> {
-                output.writeBytes(bytes);
+                writeBlock(output, bytes);
                 return (long) bytes.length;
             }, executor);
         }
         return dagBytes(cid).thenComposeAsync(bytes -> {
             var node = UnixFs.decode(bytes);
             List<Long> sizes = node.fileBlockSizes();
-            output.writeBytes(node.data());
+            writeBlock(output, node.data());
             CompletableFuture<Long> appended = CompletableFuture.completedFuture((long) node.data().length);
             for (int index = 0; index < sizes.size(); index++) {
                 Cid child = node.links().get(index).cid();
@@ -111,6 +122,16 @@ public class DagService {
             }
             return appended;
         }, executor);
+    }
+
+    private static void writeBlock(OutputStream output, byte[] bytes) {
+        try {
+            if (bytes.length != 0) {
+                output.write(bytes);
+            }
+        } catch (IOException failure) {
+            throw new UncheckedIOException("Failed to write UnixFS file data", failure);
+        }
     }
 
     private CompletableFuture<byte[]> dagBytes(Cid cid) {
