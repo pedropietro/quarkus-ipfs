@@ -140,7 +140,7 @@ For authenticated Kubo RPC, grant the configured bearer token access to `/api/v0
 
 ### Import a UnixFS file through Kubo
 
-Call `KuboClient.addFile(input, pin)` to upload a file as a stream and receive its root CID. Set `pin` to choose whether Kubo should retain the file during garbage collection. The caller closes the input stream. Grant the bearer token access to `/api/v0/add` for uploads.
+Call `KuboClient.addFile(input, pin)` to upload a file as a stream and receive its root CID. Set `pin` to choose whether Kubo should retain the file during garbage collection. The caller closes the input stream. Grant the bearer token access to `/api/v0/add` for uploads. Both file operations report an error if Kubo sends an `X-Stream-Error` trailer.
 
 ```java
 try (var input = Files.newInputStream(source)) {

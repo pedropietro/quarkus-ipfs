@@ -2,7 +2,7 @@ package io.quarkiverse.ipfs.runtime;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-import java.io.FilterInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -18,8 +18,10 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -33,19 +35,28 @@ import com.google.gson.JsonParser;
 
 import io.ipfs.cid.Cid;
 import io.quarkiverse.ipfs.runtime.config.IpfsRuntimeConfig;
+import io.vertx.core.Future;
+import io.vertx.core.Vertx;
+import io.vertx.core.buffer.Buffer;
+import io.vertx.core.http.HttpClientOptions;
+import io.vertx.core.http.HttpClientRequest;
+import io.vertx.core.http.HttpClientResponse;
+import io.vertx.core.http.HttpMethod;
+import io.vertx.core.http.RequestOptions;
 
 /** CDI client for reading raw blocks and transferring UnixFS files through a configured Kubo HTTP RPC server. */
 public class KuboClient {
     private static final int MAX_ADD_RESPONSE_BYTES = 4096;
 
     private final HttpClient http;
+    private final io.vertx.core.http.HttpClient streamHttp;
     private final ManagedExecutor executor;
     private final String rpcBase;
     private final Duration timeout;
     private final Optional<String> bearerToken;
 
     @Inject
-    KuboClient(IpfsRuntimeConfig config, ManagedExecutor executor) {
+    KuboClient(IpfsRuntimeConfig config, ManagedExecutor executor, Vertx vertx) {
         this.executor = executor;
         var kubo = config.kubo();
         URI url = kubo.apiUrl();
@@ -65,6 +76,8 @@ public class KuboClient {
         }
         rpcBase = url.toASCIIString().replaceFirst("/+$", "") + "/api/v0/";
         http = HttpClient.newBuilder().connectTimeout(timeout).followRedirects(HttpClient.Redirect.NEVER).build();
+        streamHttp = vertx.createHttpClient(new HttpClientOptions()
+                .setConnectTimeout((int) Math.clamp(timeout.toMillis(), 1, Integer.MAX_VALUE)));
     }
 
     /**
@@ -95,7 +108,7 @@ public class KuboClient {
      * partial data in the destination. The configured timeout covers the entire transfer.
      * On timeout or cancellation, the client releases the HTTP response and interrupts the transfer. A destination
      * write already in progress can finish after the future completes if the destination does not respond to interruption.
-     * I/O errors, including incomplete responses, fail with {@link UncheckedIOException}.
+     * I/O errors, incomplete responses and Kubo stream errors fail with {@link UncheckedIOException}.
      */
     public CompletableFuture<Long> writeFile(String cidString, OutputStream output) {
         Objects.requireNonNull(output, "output");
@@ -106,7 +119,8 @@ public class KuboClient {
             return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid IPFS CID", failure));
         }
 
-        return transfer((result, body) -> copyFile(cid, output, result, body));
+        return transfer("cat?arg=" + URLEncoder.encode(cid.toString(), UTF_8),
+                (request, result) -> copyFile(cid, output, request, result));
     }
 
     /**
@@ -115,25 +129,30 @@ public class KuboClient {
      * The caller owns the source and must keep it open while the transfer reads it.
      * The configured timeout covers the entire upload and response. On timeout or cancellation, a source read
      * already in progress can finish later and Kubo may have stored data from the request.
-     * HTTP failures use {@link KuboRequestException} and I/O failures use {@link UncheckedIOException}.
+     * HTTP status failures use {@link KuboRequestException}. I/O and Kubo stream errors use {@link UncheckedIOException}.
      */
     public CompletableFuture<String> addFile(InputStream input, boolean pin) {
         Objects.requireNonNull(input, "input");
-        return transfer((result, body) -> uploadFile(input, pin, result, body));
+        return transfer("add?cid-version=1&pin=" + pin + "&progress=false&enc=json",
+                (request, result) -> uploadFile(input, request, result));
     }
 
     @FunctionalInterface
     private interface StreamTransfer<T> {
-        T run(CompletableFuture<T> result, CompletableFuture<InputStream> responseBody)
-                throws IOException, InterruptedException;
+        T run(HttpClientRequest request, CompletableFuture<T> result) throws IOException, InterruptedException;
     }
 
-    private <T> CompletableFuture<T> transfer(StreamTransfer<T> action) {
+    private <T> CompletableFuture<T> transfer(String path, StreamTransfer<T> action) {
         var result = new CompletableFuture<T>();
-        var responseBody = new CompletableFuture<InputStream>();
-        var transfer = executor.submit(() -> {
+        var opened = new CompletableFuture<HttpClientRequest>();
+        var worker = executor.submit(() -> {
             try {
-                result.complete(action.run(result, responseBody));
+                var options = new RequestOptions().setAbsoluteURI(rpcBase + path)
+                        .setMethod(HttpMethod.POST).setFollowRedirects(false);
+                bearerToken.ifPresent(token -> options.addHeader("Authorization", "Bearer " + token));
+                var request = await(streamHttp.request(options).onSuccess(opened::complete));
+                checkActive(result);
+                result.complete(action.run(request, result));
             } catch (InterruptedException failure) {
                 Thread.currentThread().interrupt();
                 result.completeExceptionally(failure);
@@ -144,55 +163,78 @@ public class KuboClient {
             }
         });
         result.orTimeout(timeout.toNanos(), TimeUnit.NANOSECONDS).whenComplete((value, failure) -> {
-            if (failure instanceof TimeoutException || result.isCancelled()) {
-                transfer.cancel(true);
-                responseBody.thenAccept(KuboClient::closeAbortedBody);
+            if (failure != null) {
+                opened.thenAccept(HttpClientRequest::reset);
+                if (failure instanceof TimeoutException || result.isCancelled()) {
+                    worker.cancel(true);
+                }
             }
         });
         return result;
     }
 
     private HttpRequest request(String operation, Cid cid) {
-        return request(operation + "?arg=" + URLEncoder.encode(cid.toString(), UTF_8))
-                .POST(BodyPublishers.noBody()).build();
-    }
-
-    private HttpRequest.Builder request(String path) {
-        var request = HttpRequest.newBuilder(URI.create(rpcBase + path));
+        var request = HttpRequest
+                .newBuilder(URI.create(rpcBase + operation + "?arg=" + URLEncoder.encode(cid.toString(), UTF_8)))
+                .POST(BodyPublishers.noBody());
         bearerToken.ifPresent(token -> request.header("Authorization", "Bearer " + token));
-        return request;
+        return request.build();
     }
 
-    private String uploadFile(InputStream input, boolean pin, CompletableFuture<String> result,
-            CompletableFuture<InputStream> responseBody) throws IOException, InterruptedException {
+    private String uploadFile(InputStream input, HttpClientRequest request, CompletableFuture<String> result)
+            throws IOException, InterruptedException {
         String boundary = "quarkus-ipfs-" + UUID.randomUUID();
         String preamble = "--" + boundary + "\r\n"
                 + "Content-Disposition: form-data; name=\"file\"; filename=\"file\"\r\n"
                 + "Content-Type: application/octet-stream\r\n\r\n";
-        var source = new UploadSource(input, result);
-        var content = BodyPublishers.concat(BodyPublishers.ofString(preamble),
-                BodyPublishers.ofInputStream(source::open), BodyPublishers.ofString("\r\n--" + boundary + "--\r\n"));
-        var request = request("add?cid-version=1&pin=" + pin + "&progress=false&enc=json")
-                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                .POST(content).build();
+        request.setChunked(true).putHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
+        var ending = new AtomicBoolean();
+        var response = request.response().map(StreamResponse::new);
+        response.onSuccess(reply -> {
+            if (reply.http.statusCode() != 200) {
+                result.completeExceptionally(new KuboRequestException("add", reply.http.statusCode()));
+            } else if (!ending.get()) {
+                result.completeExceptionally(new UncheckedIOException(
+                        new IOException("Kubo add returned before reading the entire file")));
+            }
+        });
+        await(request.write(Buffer.buffer(preamble)));
+        byte[] chunk = new byte[16 * 1024];
+        for (;;) {
+            checkActive(result);
+            int count = input.read(chunk);
+            checkActive(result);
+            if (count == -1) {
+                break;
+            }
+            await(request.write(Buffer.buffer().appendBytes(chunk, 0, count)));
+        }
+        ending.set(true);
+        await(request.end(Buffer.buffer("\r\n--" + boundary + "--\r\n")));
 
-        var reply = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
-        try (var body = reply.body()) {
-            responseBody.complete(body);
-            if (result.isDone()) {
-                throw new CancellationException();
-            }
-            if (reply.statusCode() != 200) {
-                throw new KuboRequestException("add", reply.statusCode());
-            }
-            if (!source.exhausted) {
-                throw new IOException("Kubo add returned before reading the entire file");
-            }
-            byte[] data = body.readNBytes(MAX_ADD_RESPONSE_BYTES + 1);
-            if (data.length > MAX_ADD_RESPONSE_BYTES) {
-                throw new IOException("Kubo add response exceeded " + MAX_ADD_RESPONSE_BYTES + " bytes");
-            }
-            return addedCid(data);
+        var reply = await(response);
+        if (reply.http.statusCode() != 200) {
+            throw new KuboRequestException("add", reply.http.statusCode());
+        }
+        byte[] data = reply.readPrefix(MAX_ADD_RESPONSE_BYTES + 1);
+        if (data.length > MAX_ADD_RESPONSE_BYTES) {
+            throw new IOException("Kubo add response exceeded " + MAX_ADD_RESPONSE_BYTES + " bytes");
+        }
+        reply.checkTrailer("add");
+        return addedCid(data);
+    }
+
+    private static <T> T await(Future<T> future) throws IOException, InterruptedException {
+        try {
+            return future.toCompletionStage().toCompletableFuture().get();
+        } catch (ExecutionException failure) {
+            throw new IOException("Kubo HTTP exchange failed", failure.getCause());
+        }
+    }
+
+    private static void checkActive(CompletableFuture<?> result) {
+        if (result.isDone()) {
+            throw new CancellationException();
         }
     }
 
@@ -209,101 +251,90 @@ public class KuboClient {
         }
     }
 
-    private static final class UploadSource extends FilterInputStream {
-        private final CompletableFuture<?> result;
-        private final AtomicBoolean opened = new AtomicBoolean();
-        private volatile boolean exhausted;
-
-        private UploadSource(InputStream input, CompletableFuture<?> result) {
-            super(input);
-            this.result = result;
-        }
-
-        private InputStream open() {
-            // HttpClient may ask for a fresh stream if it retries an exchange. The caller's stream is one-shot.
-            return opened.compareAndSet(false, true) ? this : null;
-        }
-
-        @Override
-        public int read() throws IOException {
-            checkActive();
-            return checkRead(in.read());
-        }
-
-        @Override
-        public int read(byte[] bytes, int offset, int length) throws IOException {
-            checkActive();
-            return checkRead(in.read(bytes, offset, length));
-        }
-
-        private int checkRead(int count) throws IOException {
-            checkActive();
-            exhausted = count == -1;
-            return count;
-        }
-
-        private void checkActive() throws IOException {
-            if (result.isDone()) {
-                throw new IOException("Kubo add was interrupted");
+    private long copyFile(Cid cid, OutputStream output, HttpClientRequest request, CompletableFuture<Long> result)
+            throws IOException, InterruptedException {
+        var reply = await(request.send().map(StreamResponse::new));
+        int status = reply.http.statusCode();
+        if (status != 200) {
+            if (status == 500 && new String(reply.readPrefix(4096), UTF_8).contains("ipld: could not find " + cid)) {
+                throw new NoSuchElementException("IPFS file not found: " + cid);
             }
+            throw new KuboRequestException("cat", status);
         }
 
-        @Override
-        public void close() {
-            // The caller owns the source.
-        }
-    }
-
-    private long copyFile(Cid cid, OutputStream output, CompletableFuture<Long> result,
-            CompletableFuture<InputStream> responseBody) throws IOException, InterruptedException {
-        var reply = http.send(request("cat", cid), HttpResponse.BodyHandlers.ofInputStream());
-        try (var input = reply.body()) {
-            // Publish the body even if the timeout or cancellation raced with receiving the headers.
-            responseBody.complete(input);
-            if (result.isDone()) {
-                throw new CancellationException();
-            }
-            if (reply.statusCode() != 200) {
-                if (reply.statusCode() == 500
-                        && new String(input.readNBytes(4096), UTF_8).contains("ipld: could not find " + cid)) {
-                    throw new NoSuchElementException("IPFS file not found: " + cid);
-                }
-                throw new KuboRequestException("cat", reply.statusCode());
-            }
-
-            // Kubo sends its expected file size separately from the HTTP framing for streamed responses.
-            long size;
-            try {
-                size = reply.headers().firstValueAsLong("X-Content-Length")
-                        .orElseGet(() -> reply.headers().firstValueAsLong("Content-Length").orElse(-1));
-            } catch (NumberFormatException failure) {
-                throw new IOException("Kubo cat did not return a valid file size", failure);
-            }
-            if (size < 0) {
-                throw new IOException("Kubo cat did not return a valid file size");
-            }
-            byte[] buffer = new byte[16 * 1024];
-            long written = 0;
-            int length;
-            while (!result.isDone() && (length = input.read(buffer)) != -1) {
-                if (result.isDone()) {
-                    throw new CancellationException();
-                }
-                output.write(buffer, 0, length);
-                written += length;
-            }
-            if (written != size) {
-                throw new IOException("Kubo cat returned " + written + " bytes, expected " + size);
-            }
-            return written;
-        }
-    }
-
-    private static void closeAbortedBody(InputStream body) {
+        // Kubo sends its expected file size separately from the HTTP framing for streamed responses.
+        String length = reply.http.getHeader("X-Content-Length");
+        long size;
         try {
-            body.close();
-        } catch (IOException ignored) {
-            // Keep the timeout or cancellation as the result of the transfer.
+            size = Long.parseLong(length == null ? reply.http.getHeader("Content-Length") : length);
+        } catch (NumberFormatException failure) {
+            throw new IOException("Kubo cat did not return a valid file size", failure);
+        }
+        if (size < 0) {
+            throw new IOException("Kubo cat did not return a valid file size");
+        }
+        long written = 0;
+        for (Buffer chunk; (chunk = reply.next()) != null;) {
+            checkActive(result);
+            byte[] bytes = chunk.getBytes();
+            output.write(bytes);
+            written += bytes.length;
+        }
+        reply.checkTrailer("cat");
+        if (written != size) {
+            throw new IOException("Kubo cat returned " + written + " bytes, expected " + size);
+        }
+        return written;
+    }
+
+    /** Pull one buffer at a time from Vert.x while the caller's I/O runs on a worker. */
+    private static final class StreamResponse {
+        private static final Buffer END = Buffer.buffer();
+        private final HttpClientResponse http;
+        private final ArrayBlockingQueue<Buffer> incoming = new ArrayBlockingQueue<>(2);
+        private final AtomicBoolean finished = new AtomicBoolean();
+        private Throwable failure;
+
+        private StreamResponse(HttpClientResponse http) {
+            this.http = http;
+            http.pause();
+            http.handler(incoming::add);
+            http.exceptionHandler(error -> finish(error));
+            http.endHandler(ignored -> finish(null));
+        }
+
+        private void finish(Throwable error) {
+            if (finished.compareAndSet(false, true)) {
+                failure = error;
+                incoming.add(END);
+            }
+        }
+
+        private Buffer next() throws IOException, InterruptedException {
+            http.fetch(1);
+            var chunk = incoming.take();
+            if (chunk != END) {
+                return chunk;
+            }
+            if (failure != null) {
+                throw new IOException("Kubo response ended prematurely", failure);
+            }
+            return null;
+        }
+
+        private byte[] readPrefix(int limit) throws IOException, InterruptedException {
+            var output = new ByteArrayOutputStream();
+            for (Buffer chunk; output.size() < limit && (chunk = next()) != null;) {
+                output.writeBytes(chunk.getBytes(0, Math.min(chunk.length(), limit - output.size())));
+            }
+            return output.toByteArray();
+        }
+
+        private void checkTrailer(String operation) throws IOException {
+            if (http.trailers().contains("X-Stream-Error")) {
+                // The remote message may contain sensitive or application-specific data.
+                throw new IOException("Kubo " + operation + " reported an error in X-Stream-Error");
+            }
         }
     }
 
@@ -319,6 +350,7 @@ public class KuboClient {
 
     @PreDestroy
     void shutdown() {
+        streamHttp.close();
         http.shutdownNow();
     }
 
