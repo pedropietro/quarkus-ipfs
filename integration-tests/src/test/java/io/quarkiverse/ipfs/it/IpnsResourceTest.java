@@ -16,9 +16,12 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.peergos.EmbeddedIpfs;
+import org.peergos.Hash;
 import org.peergos.HostBuilder;
 import org.peergos.RamAddressBook;
 import org.peergos.protocol.ipns.IPNS;
@@ -43,16 +46,37 @@ public class IpnsResourceTest {
     private static EmbeddedIpfs second;
     private static EmbeddedIpfs third;
 
-    @BeforeAll
-    static void startPeers() {
-        first = PEERS.start(false);
-        second = PEERS.start(false);
-        third = PEERS.start(false);
+    @BeforeEach
+    void startPeers() {
+        if (first != null) {
+            return;
+        }
+        var localPeer = Multihash.fromBase58(given().get("/ipfs/node/peer-id").then().statusCode(200).extract().asString());
+        // Nabu's root bucket opposite its local routing ID contains all three peers.
+        int prefix = (localPeer.bareMultihash().toBytes()[0] & 0x80) ^ 0x80;
+        first = startPeerInBucket(prefix);
+        second = startPeerInBucket(prefix);
+        third = startPeerInBucket(prefix);
+        connect(first, second);
+        connect(third);
+    }
+
+    private static EmbeddedIpfs startPeerInBucket(int prefix) {
+        for (int attempt = 0; attempt < 128; attempt++) {
+            var key = newKey();
+            if ((Hash.sha256(PeerId.fromPubKey(key.publicKey()).getBytes())[0] & 0x80) == prefix) {
+                return PEERS.start(false, key);
+            }
+        }
+        throw new AssertionError("Could not generate a test peer in the selected DHT bucket");
     }
 
     @AfterAll
     static void closePeers() {
         PEERS.close();
+        first = null;
+        second = null;
+        third = null;
     }
 
     @Test
@@ -82,20 +106,20 @@ public class IpnsResourceTest {
         }
     }
 
-    @Test
-    public void selectsHighestValidSequenceAcrossPeers() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = { false, true })
+    public void selectsHighestValidSequenceAcrossPeers(boolean winnerOnLastConnectedPeer) throws Exception {
         var key = newKey();
         var now = LocalDateTime.now(ZoneOffset.UTC);
-        store(first, key, "older", 2, now.plusHours(2));
-        store(second, key, "newer", (1L << 32) + 2, now.plusHours(1));
+        store(winnerOnLastConnectedPeer ? first : third, key, "older", 2, now.plusHours(2));
+        store(winnerOnLastConnectedPeer ? third : first, key, "newer", (1L << 32) + 2, now.plusHours(1));
 
         // Retain a higher-sequence record with a forged signature on a remote peer.
         var raw = signedRecord(key, "forged", (1L << 32) + 3, now.plusHours(3));
         byte[] forged = Ipns.IpnsEntry.parseFrom(raw).toBuilder()
                 .setSignatureV2(ByteString.copyFrom(new byte[64])).build().toByteArray();
-        third.records.put(publisher(key), new IpnsRecord(forged, (1L << 32) + 3, TTL_NANOS, now.plusHours(3),
+        second.records.put(publisher(key), new IpnsRecord(forged, (1L << 32) + 3, TTL_NANOS, now.plusHours(3),
                 (PATH + "forged").getBytes(UTF_8)));
-        connect(first, second, third);
 
         // Even with a target of one record, resolve the whole batch of queried peers.
         String metricsBefore = micrometerAvailable() ? scrape() : null;
@@ -105,13 +129,13 @@ public class IpnsResourceTest {
         }
     }
 
-    @Test
-    public void selectsLaterExpirationWhenSequenceIsEqual() {
+    @ParameterizedTest
+    @ValueSource(booleans = { false, true })
+    public void selectsLaterExpirationWhenSequenceIsEqual(boolean winnerOnLastConnectedPeer) {
         var key = newKey();
         var now = LocalDateTime.now(ZoneOffset.UTC);
-        store(first, key, "shorter", 5, now.plusHours(1));
-        store(second, key, "longer", 5, now.plusHours(2));
-        connect(first, second, third);
+        store(winnerOnLastConnectedPeer ? first : third, key, "shorter", 5, now.plusHours(1));
+        store(winnerOnLastConnectedPeer ? third : first, key, "longer", 5, now.plusHours(2));
 
         resolve(key, 2).then().statusCode(200).body(is(PATH + "longer"));
     }

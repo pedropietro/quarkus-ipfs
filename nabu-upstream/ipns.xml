@@ -8,6 +8,11 @@
         <fixcrlf srcdir="${nabu.sourceDirectory}/src/main/java/org/peergos"
                  includes="EmbeddedIpfs.java,protocol/ipns/IPNS.java,protocol/ipns/IpnsRecord.java,protocol/dht/Kademlia.java,protocol/dht/RamRecordStore.java"
                  eol="${patch.eol}" fixlast="false"/>
+        <!-- Keep the routing bucket capacity aligned with the Kademlia reply size. -->
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/dht/KademliaEngine.java"
+                 encoding="UTF-8" failOnNoReplacements="true"
+                 token="this.router = new Router(Id.create(ourPeerId.bareMultihash().toBytes(), 256), 2, 2, 2);"
+                 value="this.router = new Router(Id.create(ourPeerId.bareMultihash().toBytes(), 256), 2, BUCKET_SIZE, 2);"/>
         <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/EmbeddedIpfs.java" encoding="UTF-8" failOnNoReplacements="true"
                  token="LocalDateTime.now().plusHours(hoursTtl)" value="LocalDateTime.now(java.time.ZoneOffset.UTC).plusHours(hoursTtl)"/>
         <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/dht/Kademlia.java" encoding="UTF-8" failOnNoReplacements="true"
