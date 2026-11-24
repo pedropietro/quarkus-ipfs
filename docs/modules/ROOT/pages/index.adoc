@@ -32,6 +32,23 @@ It returns the highest sequence among the records found, using the later expirat
 The future fails when the lookup times out or finds no valid records.
 Configure `quarkus.ipfs.bootstrap-addresses` to join the DHT and share records with other peers.
 
+== Micrometer metrics
+
+Add `io.quarkus:quarkus-micrometer` to the application to register IPFS meters with Micrometer.
+For Prometheus, use `io.quarkus:quarkus-micrometer-registry-prometheus` and scrape `/q/metrics`.
+Set `quarkus.ipfs.metrics-enabled=false` at build time to turn off IPFS meters while keeping the Micrometer registry.
+
+[cols="1,1,3",options="header"]
+|===
+|Meter |Type |Measurement
+|`ipfs.peers.connected` |Gauge |Distinct peers currently connected to the embedded node.
+|`ipfs.operations` |Counter |Completed `block_read`, `block_write`, `ipns_publish`, and `ipns_resolve` calls, tagged with the `operation` and the `outcome` (`success` or `failure`).
+|===
+
+Block counters cover `BlockService.get` and `put`. A block read counts once, including when it fetches the block from another peer.
+IPNS counters cover `IpnsService.publish` and `resolve`. A publication that succeeds locally with zero DHT acknowledgements counts as a success.
+Prometheus exposes these meters as `ipfs_peers_connected` and `ipfs_operations_total`.
+
 == Storage and identity
 
 The default storage backend, `RAM`, keeps blocks in memory for one application run.

@@ -10,6 +10,10 @@
     <artifactId>quarkus-ipfs-integration-tests</artifactId>
     <name>Quarkus Ipfs - Integration Tests</name>
 
+    <properties>
+        <ipfs.test.micrometer>false</ipfs.test.micrometer>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>io.quarkus</groupId>
@@ -39,6 +43,14 @@
     <build>
         <plugins>
             <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <ipfs.test.micrometer>${ipfs.test.micrometer}</ipfs.test.micrometer>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+            <plugin>
                 <groupId>io.quarkus</groupId>
                 <artifactId>quarkus-maven-plugin</artifactId>
                 <extensions>true</extensions>
@@ -64,6 +76,7 @@
                     <systemPropertyVariables>
                         <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
                         <maven.home>${maven.home}</maven.home>
+                        <ipfs.test.micrometer>${ipfs.test.micrometer}</ipfs.test.micrometer>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>
@@ -71,6 +84,23 @@
     </build>
 
     <profiles>
+        <profile>
+            <id>test-micrometer</id>
+            <activation>
+                <property>
+                    <name>!ipfs.test.without-micrometer</name>
+                </property>
+            </activation>
+            <properties>
+                <ipfs.test.micrometer>true</ipfs.test.micrometer>
+            </properties>
+            <dependencies>
+                <dependency>
+                    <groupId>io.quarkus</groupId>
+                    <artifactId>quarkus-micrometer-registry-prometheus</artifactId>
+                </dependency>
+            </dependencies>
+        </profile>
         <profile>
             <id>native-image</id>
             <activation>

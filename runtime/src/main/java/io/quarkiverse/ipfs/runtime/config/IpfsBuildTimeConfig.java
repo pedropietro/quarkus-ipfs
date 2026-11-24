@@ -25,8 +25,7 @@ public interface IpfsBuildTimeConfig {
     boolean healthEnabled();
 
     /**
-     * Reserved for IPFS Micrometer gauges and counters.
-     * The extension does not register Micrometer metrics yet. This setting has no effect.
+     * Whether to collect IPFS metrics when the node is enabled and the application has Micrometer.
      */
     @WithDefault("true")
     boolean metricsEnabled();

@@ -1,5 +1,8 @@
 package io.quarkiverse.ipfs.it;
 
+import static io.quarkiverse.ipfs.it.IpfsMetricsTest.assertIncrement;
+import static io.quarkiverse.ipfs.it.IpfsMetricsTest.micrometerAvailable;
+import static io.quarkiverse.ipfs.it.IpfsMetricsTest.scrape;
 import static io.restassured.RestAssured.given;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hamcrest.Matchers.is;
@@ -65,18 +68,28 @@ public class IpnsResourceTest {
     @Test
     public void publishesSignedRecordToAnotherPeer() {
         connect(first, second, third);
+        String metricsBefore = micrometerAvailable() ? scrape() : null;
 
         var before = LocalDateTime.now(ZoneOffset.UTC);
-        String name = given().queryParam("sequence", 1).contentType("text/plain").body(PATH + "published")
-                .post("/ipns").then().statusCode(200).header("X-IPNS-Replicas", is("3")).extract().asString();
+        var reply = given().queryParam("sequence", 1).contentType("text/plain").body(PATH + "published")
+                .post("/ipns").then().statusCode(200).extract();
 
-        var publisher = Multihash.fromBase58(name);
-        var raw = first.records.get(publisher).orElseThrow().raw;
-        var record = IPNS.parseAndValidateIpnsEntry(IPNS.getKey(publisher), raw).orElseThrow().value;
-        assertEquals(PATH + "published", new String(record.value, UTF_8));
-        assertEquals(1, record.sequence);
-        assertTrue(!record.expiry.isBefore(before.plusHours(1)));
-        assertTrue(!record.expiry.isAfter(LocalDateTime.now(ZoneOffset.UTC).plusHours(1)));
+        var publisher = Multihash.fromBase58(reply.asString());
+        var replicas = Stream.of(first, second, third).flatMap(peer -> peer.records.get(publisher).stream()).toList();
+        assertTrue(!replicas.isEmpty());
+        assertEquals(replicas.size(), Integer.parseInt(reply.header("X-IPNS-Replicas")));
+        for (var replica : replicas) {
+            var record = IPNS.parseAndValidateIpnsEntry(IPNS.getKey(publisher), replica.raw).orElseThrow().value;
+            assertEquals(PATH + "published", new String(record.value, UTF_8));
+            assertEquals(1, record.sequence);
+            assertTrue(!record.expiry.isBefore(before.plusHours(1)));
+            assertTrue(!record.expiry.isAfter(LocalDateTime.now(ZoneOffset.UTC).plusHours(1)));
+        }
+        if (metricsBefore != null) {
+            String metricsAfter = scrape();
+            assertIncrement(metricsBefore, metricsAfter, "ipns_publish", "success");
+            assertTrue(metricsBefore.lines().anyMatch(line -> line.matches("ipfs_peers_connected [1-9][0-9]*\\.0")));
+        }
     }
 
     @Test
@@ -95,7 +108,11 @@ public class IpnsResourceTest {
         connect(first, second, third);
 
         // Even with a target of one record, resolve the whole batch of queried peers.
+        String metricsBefore = micrometerAvailable() ? scrape() : null;
         resolve(key, 1).then().statusCode(200).body(is(PATH + "newer"));
+        if (metricsBefore != null) {
+            assertIncrement(metricsBefore, scrape(), "ipns_resolve", "success");
+        }
     }
 
     @Test
@@ -120,7 +137,11 @@ public class IpnsResourceTest {
                 (PATH + "expired").getBytes(UTF_8)));
         connect(first, second, third);
 
+        String metricsBefore = micrometerAvailable() ? scrape() : null;
         resolve(key, 1).then().statusCode(404).body(is("No valid IPNS records found for: " + publisher(key).toBase58()));
+        if (metricsBefore != null) {
+            assertIncrement(metricsBefore, scrape(), "ipns_resolve", "failure");
+        }
     }
 
     private static EmbeddedIpfs startPeer() {
