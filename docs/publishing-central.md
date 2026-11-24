@@ -60,7 +60,7 @@ The `central-release` profile attaches Javadoc, signs the Maven artifacts, and c
 Upload the bundle in Central Portal. Review the validation results and confirm the publication there. Once the Portal reports the deployment as published, run the functional consumer check with the published extension version and its Quarkus BOM version. Run this command from the source checkout using Bash on Linux, or WSL on Windows.
 
 ~~~sh
-bash .github/central-consumer/verify.sh 0.4.0 4.0.0
+bash .github/central-consumer/verify.sh 0.5.0 4.0.0
 ~~~
 
 The script copies the consumer into a temporary directory, starts with an empty local Maven repository, and launches the packaged JAR. The application verifies the expected CID and compares the recovered binary bytes with the original payload.
