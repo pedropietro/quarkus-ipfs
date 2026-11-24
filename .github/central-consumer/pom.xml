@@ -45,4 +45,16 @@
             </plugin>
         </plugins>
     </build>
+    <profiles>
+        <profile>
+            <id>netty-compat</id>
+            <!-- The published 0.5.0 extension needs the Quarkus Netty native initialization rules. -->
+            <dependencies>
+                <dependency>
+                    <groupId>io.quarkus</groupId>
+                    <artifactId>quarkus-netty</artifactId>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
 </project>

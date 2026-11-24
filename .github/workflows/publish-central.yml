@@ -143,9 +143,23 @@ jobs:
         run: |
           python3 .github/scripts/central_publication.py --version "$RELEASE_VERSION" wait --deployment-id "$DEPLOYMENT_ID"
 
-      - name: Run the consumer with an empty Maven cache
+      - name: Run the JVM consumer with an empty Maven cache
         env:
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
           QUARKUS_VERSION: ${{ steps.release.outputs.quarkus_version }}
         run: |
-          bash .github/central-consumer/verify.sh "$RELEASE_VERSION" "$QUARKUS_VERSION"
+          bash .github/central-consumer/verify.sh "$RELEASE_VERSION" "$QUARKUS_VERSION" jvm
+
+      - name: Run the native consumer with an empty Maven cache
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          QUARKUS_VERSION: ${{ steps.release.outputs.quarkus_version }}
+          QUARKUS_NATIVE_CONTAINER_BUILD: 'true'
+        run: |
+          set -euo pipefail
+          builder_image=quay.io/quarkus/ubi10-quarkus-mandrel-builder-image:jdk-25
+          docker pull "$builder_image"
+          QUARKUS_NATIVE_BUILDER_IMAGE=$(docker image inspect --format '{{index .RepoDigests 0}}' "$builder_image")
+          export QUARKUS_NATIVE_BUILDER_IMAGE
+          echo "Native consumer builder image: $QUARKUS_NATIVE_BUILDER_IMAGE"
+          bash .github/central-consumer/verify.sh "$RELEASE_VERSION" "$QUARKUS_VERSION" native

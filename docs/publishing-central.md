@@ -24,7 +24,7 @@ git tag -a v0.2.0 -m 'Release 0.2.0'
 git push origin v0.2.0
 ```
 
-The workflow accepts tags of the form `vMAJOR.MINOR.PATCH` and requires the tagged commit to be on `main` with a matching Maven version. It runs the JVM and native jobs from `Build`, signs the artifacts, and waits for Central Portal to publish them. The last step packages an independent Quarkus application with a new Maven cache, then launches the JAR and verifies a block write and read by CID through the CDI bean. [Publication workflow](../.github/workflows/publish-central.yml)
+The workflow accepts tags of the form `vMAJOR.MINOR.PATCH` and requires the tagged commit to be on `main` with a matching Maven version. It runs the JVM and native jobs from `Build`, signs the artifacts, and waits for Central Portal to publish them. After publication, the workflow builds an independent Quarkus application as a JAR and a Mandrel 25 Linux executable, each with its own empty Maven cache. Both run a block write and read by CID through the CDI bean. [Publication workflow](../.github/workflows/publish-central.yml)
 
 The Build workflow retries Maven verification once after 15 seconds if Maven reports HTTP 429, 502, 503, or 504 while transferring an artifact. Test failures and persistent transfer errors fail the build. This retry runs before signing and upload.
 
@@ -62,10 +62,14 @@ The `central-release` profile attaches Javadoc, signs the Maven artifacts, and c
 Upload the bundle in Central Portal. Review the validation results and confirm the publication there. Once the Portal reports the deployment as published, run the functional consumer check with the published extension version and its Quarkus BOM version. Run this command from the source checkout using Bash on Linux, or WSL on Windows.
 
 ~~~sh
-bash .github/central-consumer/verify.sh 0.5.0 4.0.0
+bash .github/central-consumer/verify.sh 0.5.0 4.0.0 jvm
+
+QUARKUS_NATIVE_CONTAINER_BUILD=true \
+QUARKUS_NATIVE_BUILDER_IMAGE=quay.io/quarkus/ubi10-quarkus-mandrel-builder-image:jdk-25 \
+  bash .github/central-consumer/verify.sh 0.5.0 4.0.0 native
 ~~~
 
-The script copies the consumer into a temporary directory, starts with an empty local Maven repository, and launches the packaged JAR. The application verifies the expected CID and compares the recovered binary bytes with the original payload.
+Each invocation copies the consumer into its own temporary directory and starts with an empty local Maven repository. The JVM invocation launches the packaged JAR. The native invocation requires Docker for the container build shown above and launches the resulting Linux executable. Both verify the expected CID and compare the recovered binary bytes with the original payload. In native mode for the published 0.5.0 artifacts, the script activates a compatibility profile that adds Quarkus Netty for its runtime initialization rules. The 0.6.0 extension declares this dependency itself.
 
 [Manual bundle upload](https://central.sonatype.org/publish/publish-portal-upload/)
 
