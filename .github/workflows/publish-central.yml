@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   verify:
-    if: github.event_name == 'push' && github.run_attempt == 1
+    if: github.event_name == 'push'
     permissions:
       contents: read
       pull-requests: read
@@ -33,18 +33,17 @@ jobs:
   publish:
     name: Publish and verify Maven Central artifacts
     needs: verify
-    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.verify.result == 'success' || github.run_attempt > 1) }}
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.verify.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
+    permissions:
+      actions: read
+      contents: read
     steps:
       - name: Verify workflow mode
         run: |
           if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF" != refs/heads/main ]]; then
             echo "::error::Run this workflow from main when resuming a deployment."
-            exit 1
-          fi
-          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_RUN_ATTEMPT" != 1 ]]; then
-            echo "::error::Check Central Portal for the existing deployment ID and use Run workflow on main to resume."
             exit 1
           fi
 
@@ -81,11 +80,19 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "commit=$tag_commit" >> "$GITHUB_OUTPUT"
           if [[ ! "$quarkus_version" =~ ^[0-9][A-Za-z0-9.+-]*$ ]]; then
             echo "::error::Expected a Quarkus version in the release POM."
             exit 1
           fi
           echo "quarkus_version=$quarkus_version" >> "$GITHUB_OUTPUT"
+
+      - name: Verify upload history
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
+        run: python3 .github/scripts/central_upload_history.py
 
       - name: Set up Java
         uses: actions/setup-java@v6.3.0
