@@ -59,7 +59,7 @@ The `central-release` profile attaches Javadoc, signs the Maven artifacts, and c
 
 ## Upload and verify manually
 
-Upload the bundle in Central Portal. Review the validation results and confirm the publication there. Once the Portal reports the deployment as published, run the functional consumer check with the published extension version and its Quarkus BOM version. Run this command from the source checkout using Bash on Linux, or WSL on Windows.
+Upload the bundle in Central Portal. Review the validation results and confirm the publication there. Once the Portal reports the deployment as published, run the functional consumer check with the published extension version and its Quarkus BOM version. Run this command from the source checkout using Bash and Python 3 on Linux, or WSL on Windows.
 
 ~~~sh
 bash .github/central-consumer/verify.sh 0.6.0 4.0.0 jvm

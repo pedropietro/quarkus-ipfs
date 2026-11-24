@@ -83,8 +83,9 @@ if [[ "$reactor" == true ]]; then
 else
     printf 'Resolving Quarkus IPFS %s with an empty local Maven repository (%s, %s).\n' "$ipfs_version" "$mode" "$scenario"
 fi
-bash "$root/mvnw" -B -ntp -s "$work/settings.xml" -gs "$work/settings.xml" \
-    "-Dmaven.repo.local=$work/repository" "-Dipfs.version=$ipfs_version" "-Dquarkus.version=$quarkus_version" "${package_args[@]}" package
+python3 -B "$root/.github/scripts/maven_verify.py" --package "$root/mvnw" \
+    -s "$work/settings.xml" -gs "$work/settings.xml" "-Dmaven.repo.local=$work/repository" \
+    "-Dipfs.version=$ipfs_version" "-Dquarkus.version=$quarkus_version" "${package_args[@]}"
 
 if [[ "$mode" == native ]]; then
     shopt -s nullglob

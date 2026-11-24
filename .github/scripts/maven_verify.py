@@ -1,4 +1,4 @@
-"""Run Maven verification, retrying once on a transient repository transfer error."""
+"""Run Maven builds, retrying once on a transient repository transfer error."""
 
 import re
 import subprocess
@@ -22,7 +22,14 @@ BUILD_FAILURE = re.compile(
 
 
 def verify(arguments):
-    command = ["bash", "./mvnw", "-B", "clean", "verify", "-Dno-format", *arguments]
+    return run_maven(["bash", "./mvnw", "-B", "clean", "verify", "-Dno-format", *arguments])
+
+
+def package(wrapper, arguments):
+    return run_maven(["bash", wrapper, "-B", "-ntp", "-U", "package", *arguments])
+
+
+def run_maven(command):
     for attempt in range(2):
         transfer_failure = False
         build_failure = False
@@ -40,9 +47,12 @@ def verify(arguments):
         if status <= 0 or attempt or not transfer_failure or build_failure:
             return status if status >= 0 else 128 - status
 
-        print(f"Transient Maven artifact transfer failure. Retrying verification once in {RETRY_DELAY}s.", flush=True)
+        print(f"Transient Maven artifact transfer failure. Retrying Maven once in {RETRY_DELAY}s.", flush=True)
         time.sleep(RETRY_DELAY)
 
 
 if __name__ == "__main__":
-    sys.exit(verify(sys.argv[1:]))
+    args = sys.argv[1:]
+    if args[:1] == ["--package"]:
+        sys.exit(package(args[1], args[2:]))
+    sys.exit(verify(args))
