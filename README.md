@@ -108,7 +108,7 @@ GitHub Actions publishes the Surefire and Failsafe reports for the JVM and nativ
 
 ### Verify UnixFS streaming with a limited heap
 
-The Build workflow reads a 96 MiB UnixFS file into a file on disk with a 64 MiB application heap and checks the output size and SHA-256 digest. The packaged integration-test application uses FILE block storage in its production profile.
+The Build workflow imports and reads a 512 MiB UnixFS file with a 64 MiB application heap and checks the output size and SHA-256 digest. The packaged integration-test application uses FILE block storage in its production profile.
 
 ```sh
 bash integration-tests/src/test/scripts/unixfs-stream.sh jvm integration-tests/target/quarkus-app
@@ -176,7 +176,7 @@ Build the integration-test JAR with the JVM command above and start a fresh copy
 java -jar integration-tests/target/quarkus-app/quarkus-run.jar
 ```
 
-In another terminal, start Kubo offline and run the block exchange from the repository root.
+Set the application HTTP request limit to at least 64 MiB for the nested UnixFS fixture. In another terminal, start Kubo offline and run the block exchange from the repository root.
 
 ```sh
 docker run --rm -d --network none --name quarkus-ipfs-kubo --entrypoint sh ipfs/kubo:v0.43.1 -ec '

@@ -10,20 +10,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.RejectedExecutionException;
 
 import jakarta.inject.Inject;
 
 import org.eclipse.microprofile.context.ManagedExecutor;
 
-import com.google.protobuf.ByteString;
-
 import io.ipfs.cid.Cid;
-import io.quarkiverse.ipfs.runtime.UnixFs.Link;
+import io.quarkiverse.ipfs.runtime.UnixFs.FileLink;
 
 /** File and directory operations over raw and UnixFS DAG-PB blocks. */
 public class DagService {
 
     static final int CHUNK_SIZE = 256 * 1024;
+    static final int MAX_FILE_LINKS = 174;
 
     @Inject
     BlockService blockService;
@@ -33,10 +33,13 @@ public class DagService {
 
     /**
      * Store a file and return its root CID. Single-chunk files use the raw codec.
+     * Larger files use UnixFS nodes with at most 174 ordered links per node.
      * The caller owns the input stream.
      */
     public CompletableFuture<String> addFile(String name, InputStream data) {
-        return addChunks(data, new ArrayList<>()).thenApply(Cid::toString);
+        var importer = new FileImport(data);
+        importer.readNext();
+        return importer.result;
     }
 
     /** Read a raw or DAG-PB UnixFS file into memory. */
@@ -70,24 +73,83 @@ public class DagService {
                 .thenApplyAsync(data -> UnixFs.decode(data).directoryNames(), executor);
     }
 
-    private CompletableFuture<Cid> addChunks(InputStream input, List<Link> chunks) {
-        return CompletableFuture.supplyAsync(() -> readChunk(input), executor)
-                .thenCompose(chunk -> {
-                    if (chunk.length == 0 && !chunks.isEmpty()) {
-                        return finishFile(chunks);
-                    }
-                    return blockService.put(chunk, Cid.Codec.Raw).thenCompose(cid -> {
-                        chunks.add(new Link(cid, ByteString.EMPTY, chunk.length));
-                        return chunk.length == CHUNK_SIZE ? addChunks(input, chunks) : finishFile(chunks);
-                    });
-                });
-    }
+    private final class FileImport {
+        private final InputStream input;
+        private final CompletableFuture<String> result = new CompletableFuture<>();
+        private final List<List<FileLink>> levels = new ArrayList<>();
 
-    private CompletableFuture<Cid> finishFile(List<Link> chunks) {
-        if (chunks.size() == 1) {
-            return CompletableFuture.completedFuture(chunks.getFirst().cid());
+        private FileImport(InputStream input) {
+            this.input = input;
         }
-        return blockService.put(UnixFs.encodeFile(chunks), Cid.Codec.DagProtobuf);
+
+        private void readNext() {
+            if (result.isDone()) {
+                return;
+            }
+            try {
+                CompletableFuture.supplyAsync(() -> readChunk(input), executor)
+                        .thenCompose(this::storeChunk)
+                        .whenCompleteAsync((root, failure) -> {
+                            if (failure != null) {
+                                result.completeExceptionally(failure);
+                            } else if (root != null) {
+                                result.complete(root.cid().toString());
+                            } else {
+                                readNext();
+                            }
+                        }, executor)
+                        .exceptionally(failure -> {
+                            result.completeExceptionally(failure);
+                            return null;
+                        });
+            } catch (RejectedExecutionException failure) {
+                result.completeExceptionally(failure);
+            }
+        }
+
+        private CompletableFuture<FileLink> storeChunk(byte[] chunk) {
+            if (chunk.length == 0 && !levels.isEmpty()) {
+                return finish(0);
+            }
+            int length = chunk.length;
+            return blockService.put(chunk, Cid.Codec.Raw)
+                    .thenCompose(cid -> append(0, new FileLink(cid, length, length)))
+                    .thenCompose(ignored -> length == CHUNK_SIZE ? CompletableFuture.completedFuture(null) : finish(0));
+        }
+
+        private CompletableFuture<Void> append(int level, FileLink child) {
+            if (level == levels.size()) {
+                levels.add(new ArrayList<>());
+            }
+            var links = levels.get(level);
+            if (links.size() < MAX_FILE_LINKS) {
+                links.add(child);
+                return CompletableFuture.completedFuture(null);
+            }
+
+            // Keep each full group until another child arrives, so files within the limit retain their flat root.
+            return storeFileNode(links).thenCompose(parent -> {
+                links.clear();
+                links.add(child);
+                return append(level + 1, parent);
+            });
+        }
+
+        private CompletableFuture<FileLink> finish(int level) {
+            var links = levels.get(level);
+            if (level == levels.size() - 1) {
+                return links.size() == 1 ? CompletableFuture.completedFuture(links.getFirst()) : storeFileNode(links);
+            }
+            return storeFileNode(links).thenCompose(parent -> append(level + 1, parent))
+                    .thenCompose(ignored -> finish(level + 1));
+        }
+
+        private CompletableFuture<FileLink> storeFileNode(List<FileLink> links) {
+            long fileSize = links.stream().mapToLong(FileLink::fileSize).reduce(0, Math::addExact);
+            byte[] data = UnixFs.encodeFile(links, fileSize);
+            long dagSize = links.stream().mapToLong(FileLink::dagSize).reduce(data.length, Math::addExact);
+            return blockService.put(data, Cid.Codec.DagProtobuf).thenApply(cid -> new FileLink(cid, fileSize, dagSize));
+        }
     }
 
     private static byte[] readChunk(InputStream input) {

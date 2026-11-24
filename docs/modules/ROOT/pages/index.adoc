@@ -15,7 +15,9 @@ The README includes a complete REST resource that injects `BlockService`, writes
 
 Use `DagService` to add files, read a file by its root CID, and create or list named directory entries.
 New UnixFS directories have a deterministic link order.
-The extension writes raw leaves and reads raw files and DAG-PB UnixFS files, including inline data and nested file nodes.
+The extension writes 256 KiB raw leaves and limits each newly imported file node to 174 ordered links. Larger imports use nested file nodes.
+Files within the limit keep the previous encoding. Re-importing larger files can yield a different root CID, and existing flat roots remain readable.
+The extension reads raw files and DAG-PB UnixFS files, including inline data and nested file nodes.
 `getFile(cid)` returns a byte array containing the complete file.
 Use `writeFile(cid, output)` to write the file to an `OutputStream` in block order and obtain the byte count from the returned future.
 Keep the stream open until the future completes and close or flush it in the caller.
