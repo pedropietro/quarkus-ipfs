@@ -1,6 +1,7 @@
 package io.quarkiverse.ipfs.it;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.util.NoSuchElementException;
@@ -13,9 +14,12 @@ import java.util.concurrent.TimeoutException;
 
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.StreamingOutput;
@@ -27,6 +31,69 @@ import io.smallrye.common.annotation.Blocking;
 public class KuboResource {
     @Inject
     Instance<KuboClient> client;
+
+    @POST
+    @Blocking
+    @Path("/file")
+    @Consumes(MediaType.APPLICATION_OCTET_STREAM)
+    public Response addFile(InputStream input, @QueryParam("pin") boolean pin) {
+        if (client.isUnsatisfied()) {
+            return Response.status(503).build();
+        }
+        String cid = client.get().addFile(input, pin).join();
+        return Response.status(201).type(MediaType.TEXT_PLAIN).entity(cid)
+                .header("X-Test-Max-Heap", Runtime.getRuntime().maxMemory()).build();
+    }
+
+    @GET
+    @Blocking
+    @Path("/test-upload/{mode}")
+    public String testUpload(@PathParam("mode") String mode) {
+        class TestSource extends InputStream {
+            private boolean read;
+            private volatile boolean closed;
+
+            @Override
+            public int read() throws IOException {
+                if (!read) {
+                    read = true;
+                    return 7;
+                }
+                if ("fail".equals(mode)) {
+                    throw new IOException("source rejected the read");
+                }
+                return -1;
+            }
+
+            @Override
+            public int read(byte[] bytes, int offset, int length) throws IOException {
+                int value = read();
+                if (value == -1) {
+                    return -1;
+                }
+                bytes[offset] = (byte) value;
+                return 1;
+            }
+
+            @Override
+            public void close() {
+                closed = true;
+            }
+        }
+        var source = new TestSource();
+        String outcome;
+        try {
+            outcome = "cid:" + client.get().addFile(source, true).join();
+        } catch (CompletionException failure) {
+            outcome = switch (failure.getCause()) {
+                case KuboClient.KuboRequestException error -> "http:" + error.statusCode();
+                case TimeoutException ignored -> "timeout";
+                case UncheckedIOException error -> "io-error";
+                default -> throw failure;
+            };
+        }
+        return outcome + ":" + source.closed;
+    }
 
     @GET
     @Blocking

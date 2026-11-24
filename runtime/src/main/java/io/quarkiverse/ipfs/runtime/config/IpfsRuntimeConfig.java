@@ -72,7 +72,7 @@ public interface IpfsRuntimeConfig {
     interface KuboConfig {
         /**
          * Base URL of the Kubo RPC server, including any reverse-proxy prefix.
-         * The client appends {@code /api/v0/block/get} or {@code /api/v0/cat}.
+         * The client appends {@code /api/v0/block/get}, {@code /api/v0/cat} or {@code /api/v0/add}.
          */
         @WithDefault("http://127.0.0.1:5001")
         URI apiUrl();

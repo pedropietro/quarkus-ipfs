@@ -309,7 +309,7 @@ endif::add-copy-button-to-config-props[]
 
 [.description]
 --
-Base URL of the Kubo RPC server, including any reverse-proxy prefix. The client appends `/api/v0/block/get` or `/api/v0/cat`.
+Base URL of the Kubo RPC server, including any reverse-proxy prefix. The client appends `/api/v0/block/get`, `/api/v0/cat` or `/api/v0/add`.
 
 
 ifdef::add-copy-button-to-env-var[]
