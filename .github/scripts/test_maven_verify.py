@@ -3,7 +3,7 @@ import io
 import unittest
 from unittest.mock import MagicMock, patch
 
-from maven_verify import RETRY_DELAY, verify
+from maven_verify import RETRY_DELAY, package, verify
 
 
 PARENT_429 = (
@@ -42,6 +42,15 @@ class MavenVerificationTest(unittest.TestCase):
         self.sleep.assert_called_once_with(RETRY_DELAY)
         self.assertIn(PARENT_429, self.output.getvalue())
         self.assertIn("[INFO] BUILD SUCCESS", self.output.getvalue())
+
+    def test_consumer_packaging_retries_429_in_its_isolated_repository(self):
+        self.results((1, PARENT_429), (0, "[INFO] BUILD SUCCESS"))
+        flags = ["-s", "/tmp/consumer/settings.xml", "-Dmaven.repo.local=/tmp/consumer/repository"]
+        wrapper = "/checkout/mvnw"
+        self.assertEqual(0, package(wrapper, flags))
+        expected = ["bash", wrapper, "-B", "-ntp", "-U", "package", *flags]
+        self.assertEqual([expected, expected], [call.args[0] for call in self.process.call_args_list])
+        self.sleep.assert_called_once_with(RETRY_DELAY)
 
     def test_persistent_429_fails_after_one_retry(self):
         self.results((1, PARENT_429), (2, PARENT_429))
