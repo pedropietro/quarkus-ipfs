@@ -66,12 +66,43 @@
                         });]]></replacevalue>
         </replace>
         <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/ipns/IPNS.java" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken><![CDATA[            if (map.getLong("Sequence") != entry.getSequence())
+                return Optional.empty();
+            if (map.getLong("TTL") != entry.getTtl())
+                return Optional.empty();
+            if (map.getLong("ValidityType") != entry.getValidityType().getNumber())
+                return Optional.empty();
+            if (! Arrays.equals(map.getByteArray("Value"), entry.getValue().toByteArray()))
+                return Optional.empty();
+            byte[] validity = entry.getValidity().toByteArray();
+            if (! Arrays.equals(map.getByteArray("Validity"), validity))
+                return Optional.empty();]]></replacetoken>
+            <replacevalue><![CDATA[            // The signed DAG-CBOR values are authoritative. V1 fields are optional.
+            if (!(map.get("Sequence") instanceof CborObject.CborLong sequence) ||
+                    !(map.get("TTL") instanceof CborObject.CborLong ttl) ||
+                    !(map.get("ValidityType") instanceof CborObject.CborLong validityType) ||
+                    !(map.get("Value") instanceof CborObject.CborByteArray value) ||
+                    !(map.get("Validity") instanceof CborObject.CborByteArray validity)) {
+                return Optional.empty();
+            }
+            if (validityType.value != Ipns.IpnsEntry.ValidityType.EOL_VALUE ||
+                    (entry.hasSequence() && entry.getSequence() != sequence.value) ||
+                    (entry.hasTtl() && entry.getTtl() != ttl.value) ||
+                    (entry.hasValidityType() && entry.getValidityType().getNumber() != validityType.value) ||
+                    (entry.hasValue() && !Arrays.equals(entry.getValue().toByteArray(), value.value)) ||
+                    (entry.hasValidity() && !Arrays.equals(entry.getValidity().toByteArray(), validity.value))) {
+                return Optional.empty();
+            }]]></replacevalue>
+        </replace>
+        <replace file="${nabu.sourceDirectory}/src/main/java/org/peergos/protocol/ipns/IPNS.java" encoding="UTF-8" failOnNoReplacements="true">
             <replacetoken><![CDATA[            LocalDateTime expiry = LocalDateTime.parse(new String(validity).substring(0, validity.length - 1), IPNS.rfc3339nano);
             if (expiry.isBefore(LocalDateTime.now()))]]></replacetoken>
-            <replacevalue><![CDATA[            LocalDateTime expiry = OffsetDateTime.parse(new String(validity, StandardCharsets.UTF_8))
+            <replacevalue><![CDATA[            LocalDateTime expiry = OffsetDateTime.parse(new String(validity.value, StandardCharsets.UTF_8))
                     .withOffsetSameInstant(ZoneOffset.UTC).toLocalDateTime();
             if (!expiry.isAfter(LocalDateTime.now(ZoneOffset.UTC)))]]></replacevalue>
-            <replacefilter token="catch (InvalidProtocolBufferException e)" value="catch (InvalidProtocolBufferException | DateTimeParseException e)"/>
+            <replacefilter token="catch (InvalidProtocolBufferException e)" value="catch (InvalidProtocolBufferException | DateTimeParseException | IllegalStateException e)"/>
+            <replacefilter token="new IpnsRecord(entryBytes, entry.getSequence(), entry.getTtl(), expiry, entry.getValue().toByteArray())"
+                           value="new IpnsRecord(entryBytes, sequence.value, ttl.value, expiry, value.value)"/>
             <replacefilter token='expiry.atOffset(ZoneOffset.UTC).format(rfc3339nano)+"Z"'
                            value="DateTimeFormatter.ISO_INSTANT.format(expiry.toInstant(ZoneOffset.UTC))"/>
         </replace>
