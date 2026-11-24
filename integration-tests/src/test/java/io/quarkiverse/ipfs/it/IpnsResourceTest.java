@@ -11,8 +11,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -32,37 +30,29 @@ import com.google.protobuf.ByteString;
 import io.ipfs.multihash.Multihash;
 import io.libp2p.core.PeerId;
 import io.libp2p.core.crypto.PrivKey;
-import io.quarkiverse.ipfs.runtime.IpfsRecorder;
-import io.quarkiverse.ipfs.runtime.config.IpfsBuildTimeConfig.StorageType;
-import io.quarkiverse.ipfs.runtime.config.IpfsRuntimeConfig;
-import io.quarkus.runtime.RuntimeValue;
-import io.quarkus.runtime.ShutdownContext;
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.response.Response;
-import io.smallrye.config.SmallRyeConfigBuilder;
 
 @QuarkusTest
 public class IpnsResourceTest {
 
     private static final String PATH = "/ipfs/bafkreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku/";
     private static final long TTL_NANOS = 3_600_000_000_000L;
-    private static final PeerShutdown SHUTDOWN = new PeerShutdown();
+    private static final IpfsTestPeers PEERS = new IpfsTestPeers();
     private static EmbeddedIpfs first;
     private static EmbeddedIpfs second;
     private static EmbeddedIpfs third;
 
     @BeforeAll
     static void startPeers() {
-        first = startPeer();
-        second = startPeer();
-        third = startPeer();
+        first = PEERS.start(false);
+        second = PEERS.start(false);
+        third = PEERS.start(false);
     }
 
     @AfterAll
     static void closePeers() {
-        while (!SHUTDOWN.tasks.isEmpty()) {
-            SHUTDOWN.tasks.removeFirst().run();
-        }
+        PEERS.close();
     }
 
     @Test
@@ -144,13 +134,6 @@ public class IpnsResourceTest {
         }
     }
 
-    private static EmbeddedIpfs startPeer() {
-        var config = new SmallRyeConfigBuilder().withMapping(IpfsRuntimeConfig.class)
-                .withDefaultValue("quarkus.ipfs.run-bitswap", "false")
-                .build().getConfigMapping(IpfsRuntimeConfig.class);
-        return new IpfsRecorder(new RuntimeValue<>(config)).start(0, StorageType.RAM, SHUTDOWN).getValue();
-    }
-
     private static void connect(EmbeddedIpfs... peers) {
         var addresses = Stream.of(peers).map(peer -> peer.node.listenAddresses().getFirst().toString())
                 .collect(Collectors.joining("\n"));
@@ -178,19 +161,5 @@ public class IpnsResourceTest {
     private static void store(EmbeddedIpfs peer, PrivKey key, String value, long sequence, LocalDateTime expiry) {
         var raw = signedRecord(key, value, sequence, expiry);
         peer.records.put(publisher(key), new IpnsRecord(raw, sequence, TTL_NANOS, expiry, (PATH + value).getBytes(UTF_8)));
-    }
-
-    private static class PeerShutdown implements ShutdownContext {
-        final Deque<Runnable> tasks = new ArrayDeque<>();
-
-        @Override
-        public void addShutdownTask(Runnable task) {
-            tasks.addFirst(task);
-        }
-
-        @Override
-        public void addLastShutdownTask(Runnable task) {
-            tasks.addLast(task);
-        }
     }
 }

@@ -24,10 +24,15 @@
         <nabu.source.sha256>65fa277b46ffdcdef39496d15ae913aaf0c3fa7175a1cedf47fd4df9cfb82c12</nabu.source.sha256>
         <nabu.archive>${project.build.directory}/upstream/nabu-${nabu.revision}.zip</nabu.archive>
         <nabu.sourceDirectory>${project.build.directory}/upstream/nabu-${nabu.revision}</nabu.sourceDirectory>
+        <nabu.protoc>${project.build.directory}/protoc/protoc.exe</nabu.protoc>
         <format.skip>true</format.skip>
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.jetbrains.kotlin</groupId>
             <artifactId>kotlin-stdlib</artifactId>
@@ -129,6 +134,13 @@
 
     <build>
         <sourceDirectory>${nabu.sourceDirectory}/src/main/java</sourceDirectory>
+        <extensions>
+            <extension>
+                <groupId>kr.motd.maven</groupId>
+                <artifactId>os-maven-plugin</artifactId>
+                <version>1.7.1</version>
+            </extension>
+        </extensions>
         <resources>
             <resource>
                 <directory>${nabu.sourceDirectory}/src/main/resources</directory>
@@ -142,6 +154,32 @@
             </resource>
         </resources>
         <plugins>
+            <plugin>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.9.0</version>
+                <executions>
+                    <execution>
+                        <id>copy-protoc</id>
+                        <phase>initialize</phase>
+                        <goals>
+                            <goal>copy</goal>
+                        </goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>com.google.protobuf</groupId>
+                                    <artifactId>protoc</artifactId>
+                                    <!-- The Quarkus BOM manages the compiler and protobuf-java together. -->
+                                    <type>exe</type>
+                                    <classifier>${os.detected.classifier}</classifier>
+                                    <outputDirectory>${project.build.directory}/protoc</outputDirectory>
+                                    <destFileName>protoc.exe</destFileName>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <artifactId>maven-antrun-plugin</artifactId>
                 <version>3.2.0</version>
@@ -175,12 +213,15 @@
                                     <patternset>
                                         <include name="nabu-${nabu.revision}/LICENSE"/>
                                         <include name="nabu-${nabu.revision}/src/main/java/**"/>
+                                        <include name="nabu-${nabu.revision}/src/main/protobuf/*.proto"/>
                                         <include name="nabu-${nabu.revision}/src/main/resources/**"/>
+                                        <exclude name="nabu-${nabu.revision}/src/main/java/org/peergos/protocol/*/pb/*.java"/>
                                     </patternset>
                                 </unzip>
                                 <ant antfile="${project.basedir}/lifecycle.xml" target="apply"/>
                                 <ant antfile="${project.basedir}/block-fetch.xml" target="apply"/>
                                 <ant antfile="${project.basedir}/ipns.xml" target="apply"/>
+                                <ant antfile="${project.basedir}/protobuf.xml" target="generate"/>
                             </target>
                         </configuration>
                     </execution>
