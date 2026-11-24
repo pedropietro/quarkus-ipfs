@@ -25,11 +25,13 @@ import io.quarkus.test.junit.QuarkusTest;
 @QuarkusTest
 @QuarkusTestResource(value = KuboResourceTest.Rpc.class, restrictToAnnotatedClass = true)
 public class KuboResourceTest {
-    private static final byte[] PAYLOAD = { 0, 1, 127, (byte) 0x80, (byte) 0xff };
-    private static final String OK = cid((byte) 1);
-    private static final String MISSING = cid((byte) 2);
+    static final byte[] PAYLOAD = { 0, 1, 127, (byte) 0x80, (byte) 0xff };
+    static final String OK = cid((byte) 1);
+    static final String MISSING = cid((byte) 2);
     private static final String ERROR = cid((byte) 3);
-    private static final String SLOW = cid((byte) 4);
+    static final String SLOW = cid((byte) 4);
+    static final String TRUNCATED = cid((byte) 5);
+    static final String UNAUTHORIZED = cid((byte) 6);
 
     @Test
     void returnsExactBytesUsingPostAndBearerAuthentication() {
@@ -70,6 +72,7 @@ public class KuboResourceTest {
             executor = Executors.newVirtualThreadPerTaskExecutor();
             server.setExecutor(executor);
             server.createContext("/proxy/api/v0/block/get", this::handle);
+            server.createContext("/proxy/api/v0/cat", this::handle);
             server.start();
             return Map.of("quarkus.ipfs.kubo.api-url", "http://127.0.0.1:" + server.getAddress().getPort() + "/proxy/",
                     "quarkus.ipfs.kubo.bearer-token", "test-token",
@@ -87,6 +90,16 @@ public class KuboResourceTest {
                     return;
                 }
                 String query = exchange.getRequestURI().getRawQuery();
+                if (("arg=" + UNAUTHORIZED).equals(query)) {
+                    exchange.sendResponseHeaders(401, -1);
+                    return;
+                }
+                if (("arg=" + TRUNCATED).equals(query)) {
+                    exchange.getResponseHeaders().set("X-Content-Length", Integer.toString(PAYLOAD.length));
+                    exchange.sendResponseHeaders(200, 0);
+                    exchange.getResponseBody().write(PAYLOAD[0]);
+                    return;
+                }
                 if (("arg=" + SLOW).equals(query)) {
                     exchange.sendResponseHeaders(200, PAYLOAD.length);
                     exchange.getResponseBody().write(PAYLOAD[0]);
