@@ -12,7 +12,7 @@ Add this dependency under `<dependencies>` in your application's `pom.xml`.
 <dependency>
     <groupId>io.github.pedropietro</groupId>
     <artifactId>quarkus-ipfs</artifactId>
-    <version>0.2.0</version>
+    <version>0.3.0</version>
 </dependency>
 ```
 
