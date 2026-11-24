@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="nabu-protobuf">
+    <target name="generate">
+        <property name="schemas" location="${nabu.sourceDirectory}/src/main/protobuf"/>
+        <property name="java.sources" location="${nabu.sourceDirectory}/src/main/java"/>
+
+        <!-- Preserve the protocol names and Java packages used by the shipped Nabu classes. -->
+        <replace file="${schemas}/message.proto" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken>package bitswap.message.pb;</replacetoken>
+            <replacevalue><![CDATA[package bitswap.message.pb;
+option java_package = "org.peergos.protocol.bitswap.pb";]]></replacevalue>
+        </replace>
+        <replace file="${schemas}/dht.proto" encoding="UTF-8" failOnNoReplacements="true">
+            <replacetoken>package org.peergos.protocol.dht.pb;</replacetoken>
+            <replacevalue><![CDATA[package org.peergos.dht.pb;
+option java_package = "org.peergos.protocol.dht.pb";]]></replacevalue>
+        </replace>
+
+        <chmod file="${nabu.protoc}" perm="ugo+rx" osfamily="unix"/>
+        <macrodef name="compile-schema">
+            <attribute name="file"/>
+            <sequential>
+                <exec executable="${nabu.protoc}" dir="${schemas}" failonerror="true">
+                    <arg value="--proto_path=."/>
+                    <arg value="--java_out=${java.sources}"/>
+                    <arg value="@{file}"/>
+                </exec>
+            </sequential>
+        </macrodef>
+
+        <!-- AutoNAT v1 and v2 reuse the same Protobuf message name, so compile schemas separately. -->
+        <compile-schema file="autonat.proto"/>
+        <compile-schema file="autonatv2.proto"/>
+        <compile-schema file="crypto.proto"/>
+        <compile-schema file="dcutr.proto"/>
+        <compile-schema file="dht.proto"/>
+        <compile-schema file="ipns.proto"/>
+        <compile-schema file="message.proto"/>
+    </target>
+</project>
