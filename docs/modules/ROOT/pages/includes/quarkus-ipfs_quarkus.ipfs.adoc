@@ -309,7 +309,7 @@ endif::add-copy-button-to-config-props[]
 
 [.description]
 --
-Base URL of the Kubo RPC server, including any reverse-proxy prefix. The client appends `/api/v0/block/get`.
+Base URL of the Kubo RPC server, including any reverse-proxy prefix. The client appends `/api/v0/block/get` or `/api/v0/cat`.
 
 
 ifdef::add-copy-button-to-env-var[]
@@ -330,7 +330,7 @@ endif::add-copy-button-to-config-props[]
 
 [.description]
 --
-Maximum time for a block request, including receiving its body.
+Maximum time for a Kubo request, including the complete body transfer.
 
 
 ifdef::add-copy-button-to-env-var[]
