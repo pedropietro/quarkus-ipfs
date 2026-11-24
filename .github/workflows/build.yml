@@ -64,6 +64,21 @@ jobs:
         if: matrix.java == '21'
         run: python3 -B -m unittest discover -s .github/scripts -v
 
+      - name: Verify Kubo interoperability (JVM)
+        if: matrix.java != '21'
+        timeout-minutes: 8
+        run: |
+          bash integration-tests/src/test/scripts/kubo-ci.sh jvm \
+            integration-tests/target/quarkus-app "$RUNNER_TEMP/kubo-logs"
+
+      - name: Upload Kubo JVM logs
+        if: always() && matrix.java != '21'
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: kubo-jvm-logs
+          path: ${{ runner.temp }}/kubo-logs/*.log
+          if-no-files-found: ignore
+
       - name: Upload JVM test reports
         if: always()
         uses: actions/upload-artifact@v7.0.2
@@ -90,14 +105,38 @@ jobs:
         run: bash ./mvnw --version
 
       - name: Build with Maven (Native)
+        id: native-build
         run: |
           builder_image=quay.io/quarkus/ubi10-quarkus-mandrel-builder-image:jdk-25
           docker pull "$builder_image"
           builder_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$builder_image")
           echo "Native builder image: $builder_digest"
+          echo "builder_image=$builder_digest" >> "$GITHUB_OUTPUT"
           bash ./mvnw -B -pl deployment,integration-tests -am clean verify -Dno-format -Dnative \
             -Dquarkus.native.container-build=true "-Dquarkus.native.builder-image=$builder_digest" \
             -Dnative.surefire.skip=true
+
+      - name: Verify Kubo interoperability (native)
+        timeout-minutes: 8
+        env:
+          APP_IMAGE: ${{ steps.native-build.outputs.builder_image }}
+        run: |
+          shopt -s nullglob
+          runners=(integration-tests/target/*-runner)
+          if (( ${#runners[@]} != 1 )); then
+            echo "::error::Expected exactly one integration-test native executable."
+            exit 1
+          fi
+          bash integration-tests/src/test/scripts/kubo-ci.sh native \
+            "${runners[0]}" "$RUNNER_TEMP/kubo-logs"
+
+      - name: Upload Kubo native logs
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: kubo-native-logs
+          path: ${{ runner.temp }}/kubo-logs/*.log
+          if-no-files-found: ignore
 
       - name: Upload native test reports
         if: always()
