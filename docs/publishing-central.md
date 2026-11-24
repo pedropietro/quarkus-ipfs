@@ -71,6 +71,18 @@ QUARKUS_NATIVE_BUILDER_IMAGE=quay.io/quarkus/ubi10-quarkus-mandrel-builder-image
 
 Each invocation copies the consumer into its own temporary directory and starts with an empty local Maven repository. The JVM invocation launches the packaged JAR. The native invocation requires Docker for the container build shown above and launches the resulting Linux executable. Both verify the expected CID and compare the recovered binary bytes with the original payload. In native mode for the published 0.5.0 artifacts, the script activates a compatibility profile that adds Quarkus Netty for its runtime initialization rules. The 0.6.0 extension declares this dependency itself.
 
+For releases from v0.7.0 onward, use the `kubo` scenario to verify authenticated UnixFS import and readback with the embedded node disabled. The script starts Kubo and runs the packaged consumer on an isolated Docker network. Both invocations start with their own empty Maven repository.
+
+~~~sh
+bash .github/central-consumer/verify.sh 0.7.0 4.0.0 jvm kubo
+
+QUARKUS_NATIVE_CONTAINER_BUILD=true \
+QUARKUS_NATIVE_BUILDER_IMAGE=quay.io/quarkus/ubi10-quarkus-mandrel-builder-image:jdk-25 \
+  bash .github/central-consumer/verify.sh 0.7.0 4.0.0 native kubo
+~~~
+
+CI uses `verify.sh --reactor jvm kubo` and `verify.sh --reactor native kubo` to run the same fixture against this checkout's packaged artifacts before publication.
+
 [Manual bundle upload](https://central.sonatype.org/publish/publish-portal-upload/)
 
 The original GitHub `v0.1.0` tag identifies the experimental source release. The Maven Central artifacts for that version were built from commit `c4c57d3`. [GitHub release notes](https://github.com/pedropietro/quarkus-ipfs/releases/tag/v0.1.0)
