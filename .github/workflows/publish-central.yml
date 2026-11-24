@@ -4,16 +4,27 @@ on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag (vMAJOR.MINOR.PATCH)
+        required: true
+        type: string
+      deployment_id:
+        description: Existing Sonatype Central deployment UUID
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: maven-central-${{ github.ref }}
+  group: maven-central-${{ inputs.release_tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   verify:
+    if: github.event_name == 'push' && github.run_attempt == 1
     permissions:
       contents: read
       pull-requests: read
@@ -22,9 +33,21 @@ jobs:
   publish:
     name: Publish and verify Maven Central artifacts
     needs: verify
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.verify.result == 'success' || github.run_attempt > 1) }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
+      - name: Verify workflow mode
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF" != refs/heads/main ]]; then
+            echo "::error::Run this workflow from main when resuming a deployment."
+            exit 1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_RUN_ATTEMPT" != 1 ]]; then
+            echo "::error::Check Central Portal for the existing deployment ID and use Run workflow on main to resume."
+            exit 1
+          fi
+
       - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
@@ -32,62 +55,98 @@ jobs:
 
       - name: Verify release tag
         id: release
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           set -euo pipefail
-          if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "::error::Expected a release tag in the form vMAJOR.MINOR.PATCH."
             exit 1
           fi
-          if ! git merge-base --is-ancestor HEAD origin/main; then
+          tag_commit=$(git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}")
+          if ! git merge-base --is-ancestor "$tag_commit" origin/main; then
             echo "::error::The release tag must point to a commit reachable from main."
             exit 1
           fi
-          version="${GITHUB_REF_NAME#v}"
-          pom_version=$(python3 -c 'import xml.etree.ElementTree as ET; print(ET.parse("pom.xml").getroot().findtext("{*}version"))')
+          if [[ "$GITHUB_EVENT_NAME" == push && "$tag_commit" != "$(git rev-parse HEAD)" ]]; then
+            echo "::error::The checkout does not match the release tag."
+            exit 1
+          fi
+          version="${RELEASE_TAG#v}"
+          read -r pom_version quarkus_version < <(
+            git show "$tag_commit:pom.xml" | python3 -c 'import sys, xml.etree.ElementTree as ET; pom = ET.parse(sys.stdin).getroot(); print(pom.findtext("{*}version"), pom.findtext("{*}properties/{*}quarkus.version"))'
+          )
           if [[ "$version" != "$pom_version" ]]; then
-            echo "::error::Release tag $GITHUB_REF_NAME does not match Maven version $pom_version."
+            echo "::error::Release tag $RELEASE_TAG does not match Maven version $pom_version."
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ ! "$quarkus_version" =~ ^[0-9][A-Za-z0-9.+-]*$ ]]; then
+            echo "::error::Expected a Quarkus version in the release POM."
+            exit 1
+          fi
+          echo "quarkus_version=$quarkus_version" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Java and Maven settings
+      - name: Set up Java
         uses: actions/setup-java@v6.3.0
         with:
           distribution: temurin
           java-version: '21'
-          server-id: central
-          server-username: MAVEN_CENTRAL_USERNAME
-          server-password: MAVEN_CENTRAL_PASSWORD
 
-      - name: Sign and publish the release
+      - name: Build and sign the release bundle
+        if: github.event_name == 'push'
         env:
-          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
-          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           MAVEN_GPG_KEY: ${{ secrets.MAVEN_GPG_KEY }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
         run: |
           set -euo pipefail
-          for secret in MAVEN_CENTRAL_USERNAME MAVEN_CENTRAL_PASSWORD MAVEN_GPG_KEY; do
-            if [[ -z "${!secret}" ]]; then
-              echo "::error::Configure the $secret GitHub Actions secret."
-              exit 1
-            fi
-          done
+          if [[ -z "$MAVEN_GPG_KEY" ]]; then
+            echo "::error::Configure the MAVEN_GPG_KEY GitHub Actions secret."
+            exit 1
+          fi
           bash ./mvnw -B -ntp -Pcentral-release -DperformRelease=true -DskipTests \
-            -Dgpg.signer=bc -Dgpg.useAgent=false \
-            -Dcentral.release.skip-upload=false -Dcentral.release.auto-publish=true \
-            -Dcentral.release.wait-until=published clean deploy
+            -Dgpg.signer=bc -Dgpg.useAgent=false -Dcentral.release.skip-upload=true clean deploy
 
-      - name: Resolve the release with an empty Maven cache
+      - name: Upload the signed bundle
+        if: github.event_name == 'push'
+        id: upload
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          python3 .github/scripts/central_publication.py --version "$RELEASE_VERSION" upload \
+            --bundle target/central-publishing/central-bundle.zip \
+            --checkpoint "$RUNNER_TEMP/central-deployment.json"
+
+      - name: Save the Central deployment ID
+        if: ${{ !cancelled() && steps.upload.outputs.deployment_id != '' }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: central-deployment-v${{ steps.release.outputs.version }}
+          path: ${{ runner.temp }}/central-deployment.json
+          if-no-files-found: error
+
+      - name: Wait for Central to publish the deployment
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          DEPLOYMENT_ID: ${{ inputs.deployment_id || steps.upload.outputs.deployment_id }}
+        run: |
+          python3 .github/scripts/central_publication.py --version "$RELEASE_VERSION" wait --deployment-id "$DEPLOYMENT_ID"
+
+      - name: Build a consumer with an empty Maven cache
         working-directory: ${{ runner.temp }}
         env:
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          QUARKUS_VERSION: ${{ steps.release.outputs.quarkus_version }}
         run: |
           set -euo pipefail
           cache=$(mktemp -d)
           settings="$cache/settings.xml"
           printf '<settings/>\n' > "$settings"
+          cp "$GITHUB_WORKSPACE/.github/central-consumer/pom.xml" "$cache/pom.xml"
           bash "$GITHUB_WORKSPACE/mvnw" -B -ntp -s "$settings" -gs "$settings" \
-            "-Dmaven.repo.local=$cache/repository" \
-            org.apache.maven.plugins:maven-dependency-plugin:3.9.0:get \
-            "-Dartifact=io.github.pedropietro:quarkus-ipfs:$RELEASE_VERSION"
+            -f "$cache/pom.xml" "-Dmaven.repo.local=$cache/repository" \
+            "-Dipfs.version=$RELEASE_VERSION" "-Dquarkus.version=$QUARKUS_VERSION" package

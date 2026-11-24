@@ -24,9 +24,15 @@ git tag -a v0.2.0 -m 'Release 0.2.0'
 git push origin v0.2.0
 ```
 
-The workflow accepts tags of the form `vMAJOR.MINOR.PATCH` and requires the tagged commit to be on `main` with a matching Maven version. It runs the JVM and native jobs from `Build`, signs the artifacts, and waits for Central Portal to publish them. The last step resolves the published extension and its dependencies with an empty Maven cache. [Publication workflow](../.github/workflows/publish-central.yml)
+The workflow accepts tags of the form `vMAJOR.MINOR.PATCH` and requires the tagged commit to be on `main` with a matching Maven version. It runs the JVM and native jobs from `Build`, signs the artifacts, and waits for Central Portal to publish them. The last step packages an independent Quarkus application using the published extension and a new Maven cache. [Publication workflow](../.github/workflows/publish-central.yml)
 
-If a run stops after upload, check its deployment in the Central Portal before rerunning the publish job. Published versions are immutable. [Central Portal deployments](https://central.sonatype.com/publishing/deployments)
+## Resume an existing deployment
+
+The upload step records the deployment ID in its log, the run summary, and the `central-deployment-vMAJOR.MINOR.PATCH` artifact. The artifact contains the tag and ID.
+
+If the wait or cache check stops after upload, open **Actions**, select **Publish to Maven Central**, then choose **Run workflow** from `main`. Enter the original tag in `release_tag` and its deployment UUID in `deployment_id`. This mode queries the existing deployment, checks the published coordinates against the tag, and reruns the empty-cache check. It skips signing and upload.
+
+If upload stops before it reports an ID, find the deployment by its release name in Central Portal before retrying. The tag-triggered workflow blocks uploads on GitHub reruns. Check any validation errors in the Portal using the deployment ID. [Central Portal deployments](https://central.sonatype.com/publishing/deployments)
 
 ## Prepare the bundle manually
 

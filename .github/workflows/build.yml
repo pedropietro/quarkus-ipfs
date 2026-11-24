@@ -60,6 +60,10 @@ jobs:
       - name: Build with Maven
         run: bash ./mvnw -B clean verify -Dno-format
 
+      - name: Test Central publication and recovery
+        if: matrix.java == '21'
+        run: python3 -B -m unittest discover -s .github/scripts -v
+
       - name: Upload JVM test reports
         if: always()
         uses: actions/upload-artifact@v7.0.2
