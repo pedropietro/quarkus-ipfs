@@ -1,5 +1,7 @@
 package io.quarkiverse.ipfs.runtime.config;
 
+import java.net.URI;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 
@@ -63,4 +65,23 @@ public interface IpfsRuntimeConfig {
      * When absent, a new Ed25519 key is generated on each startup.
      */
     Optional<String> identityPrivateKey();
+
+    /** Configuration for the Kubo HTTP client. */
+    KuboConfig kubo();
+
+    interface KuboConfig {
+        /**
+         * Base URL of the Kubo RPC server, including any reverse-proxy prefix.
+         * The client appends {@code /api/v0/block/get}.
+         */
+        @WithDefault("http://127.0.0.1:5001")
+        URI apiUrl();
+
+        /** Maximum time for a block request, including receiving its body. */
+        @WithDefault("PT30S")
+        Duration timeout();
+
+        /** Optional bearer token for the Kubo RPC API. */
+        Optional<String> bearerToken();
+    }
 }
