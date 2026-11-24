@@ -1,5 +1,8 @@
 package io.quarkiverse.ipfs.runtime;
 
+import static io.quarkiverse.ipfs.runtime.IpfsMetrics.Operation.BLOCK_READ;
+import static io.quarkiverse.ipfs.runtime.IpfsMetrics.Operation.BLOCK_WRITE;
+
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -26,12 +29,15 @@ public class BlockService {
     @Inject
     ManagedExecutor executor;
 
+    @Inject
+    IpfsMetrics metrics;
+
     /**
      * Read locally first and fall back to Bitswap when available. Missing blocks fail with
      * {@link NoSuchElementException}. Network failures, including timeouts, are reported as a {@link BlockFetchException}.
      */
     public CompletableFuture<byte[]> get(String cidString) {
-        return io(() -> {
+        var result = io(() -> {
             Cid cid = decode(cidString);
             return ipfs.blockstore.get(cid).thenCompose(local -> {
                 if (local.isPresent()) {
@@ -52,10 +58,11 @@ public class BlockService {
                                 .orElseGet(() -> missing(cid)), executor);
             });
         });
+        return metrics.record(BLOCK_READ, result);
     }
 
     public CompletableFuture<Cid> put(byte[] data, Cid.Codec codec) {
-        return io(() -> ipfs.blockstore.put(data, codec));
+        return metrics.record(BLOCK_WRITE, io(() -> ipfs.blockstore.put(data, codec)));
     }
 
     /** Check only the local blockstore. */

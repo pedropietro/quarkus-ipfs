@@ -57,7 +57,7 @@ endif::add-copy-button-to-config-props[]
 
 [.description]
 --
-Reserved for IPFS Micrometer gauges and counters. The extension does not register Micrometer metrics yet. This setting has no effect.
+Whether to collect IPFS metrics when the node is enabled and the application has Micrometer.
 
 
 ifdef::add-copy-button-to-env-var[]
