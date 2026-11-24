@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlsplit
 from urllib.error import HTTPError, URLError
 
 from central_publication import ARTIFACTS, main
+from central_upload_history import PUBLISH_JOB, UPLOAD_STEP, UploadHistoryError, check_upload
 
 
 DEPLOYMENT = "77b32e39-e307-4886-a93a-e0c7c6d66471"
@@ -68,6 +69,28 @@ class CentralPublicationTest(unittest.TestCase):
         self.assertEqual(0, self.wait())
         self.assertEqual(["upload", "status", "status"], self.endpoints())
 
+    def test_recovery_uploads_once_after_skipped_attempt_and_then_waits_by_id(self):
+        tag, commit, run_id = "v0.4.0", "a" * 40, 100
+        run = {"id": run_id, "run_number": 1, "run_attempt": 2, "head_branch": tag,
+               "head_sha": commit, "status": "in_progress", "event": "push"}
+        skipped = {"name": PUBLISH_JOB, "status": "completed", "conclusion": "skipped", "steps": []}
+        uploaded = {"name": PUBLISH_JOB, "status": "completed", "conclusion": "failure", "steps": [
+            {"name": UPLOAD_STEP, "status": "completed", "conclusion": "success"},
+        ]}
+        self.opener.side_effect = [io.BytesIO(DEPLOYMENT.encode()), self.response()]
+        with patch("central_upload_history.github_list", side_effect=[[run], [skipped]]):
+            check_upload(tag, commit, run_id, 2)
+            self.assertEqual(0, self.upload())
+
+        with patch("central_upload_history.github_list", side_effect=[
+            [run | {"run_attempt": 3}], [skipped], [uploaded],
+        ]):
+
+            with self.assertRaises(UploadHistoryError):
+                check_upload(tag, commit, run_id, 3)
+        self.assertEqual(0, self.wait())
+        self.assertEqual(["upload", "status"], self.endpoints())
+
     def test_ignores_transient_status_errors_and_waits_for_publication(self):
         self.opener.side_effect = [
             HTTPError("https://central.sonatype.com", 503, "unavailable", {}, None),
@@ -94,16 +117,19 @@ class CentralPublicationTest(unittest.TestCase):
         self.assertEqual(1, self.wait())
         self.assertIn("different deployment", self.stderr.getvalue())
 
-    def test_rerun_does_not_attempt_upload(self):
-        with patch.dict(os.environ, {"GITHUB_RUN_ATTEMPT": "2"}):
-            self.assertEqual(1, self.upload())
-        self.assertEqual([], self.endpoints())
+    def test_local_upload_cannot_repeat_after_success(self):
+        self.opener.return_value = io.BytesIO(DEPLOYMENT.encode())
+        self.assertEqual(0, self.upload())
+        self.assertEqual(1, self.upload())
+        self.assertEqual(["upload"], self.endpoints())
 
     def test_ambiguous_upload_is_not_retried(self):
         self.opener.side_effect = URLError("timed out")
         self.assertEqual(1, self.upload())
         self.assertEqual(["upload"], self.endpoints())
         self.assertFalse(self.checkpoint.exists())
+        self.assertEqual(1, self.upload())
+        self.assertEqual(["upload"], self.endpoints())
         self.assertIn("Upload result unknown", self.stderr.getvalue())
 
 

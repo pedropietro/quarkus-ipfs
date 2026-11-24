@@ -26,13 +26,19 @@ git push origin v0.2.0
 
 The workflow accepts tags of the form `vMAJOR.MINOR.PATCH` and requires the tagged commit to be on `main` with a matching Maven version. It runs the JVM and native jobs from `Build`, signs the artifacts, and waits for Central Portal to publish them. The last step packages an independent Quarkus application using the published extension and a new Maven cache. [Publication workflow](../.github/workflows/publish-central.yml)
 
+## Recover a publication before upload
+
+If the tag-triggered run stops before upload, select **Re-run all jobs** on that run. This rebuilds JVM and native artifacts for the same tagged commit. The workflow permits the first upload when GitHub Actions confirms that the publication job or the upload step was skipped in every prior attempt for that tag.
+
+A completed or uncertain upload blocks another upload. If the upload step started and the deployment ID is missing, check the [Central Portal deployments](https://central.sonatype.com/publishing/deployments) for the release name. If a deployment exists, continue by ID. If GitHub history is missing or incomplete, confirm the release status in the Portal before taking any manual action. GitHub run history covers uploads done by this workflow. Check the Portal before rerunning if someone may have uploaded the bundle manually.
+
 ## Resume an existing deployment
 
 The upload step records the deployment ID in its log, the run summary, and the `central-deployment-vMAJOR.MINOR.PATCH` artifact. The artifact contains the tag and ID.
 
 If the wait or cache check stops after upload, open **Actions**, select **Publish to Maven Central**, then choose **Run workflow** from `main`. Enter the original tag in `release_tag` and its deployment UUID in `deployment_id`. This mode queries the existing deployment, checks the published coordinates against the tag, and reruns the empty-cache check. It skips signing and upload.
 
-If upload stops before it reports an ID, find the deployment by its release name in Central Portal before retrying. The tag-triggered workflow blocks uploads on GitHub reruns. Check any validation errors in the Portal using the deployment ID. [Central Portal deployments](https://central.sonatype.com/publishing/deployments)
+Check any deployment validation errors in the Portal using that ID. [Central Portal deployments](https://central.sonatype.com/publishing/deployments)
 
 ## Prepare the bundle manually
 

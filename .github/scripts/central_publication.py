@@ -151,8 +151,13 @@ def main(argv=None):
             raise PublicationError("Expected a MAJOR.MINOR.PATCH version.")
         portal = CentralPortal(os.environ.get("MAVEN_CENTRAL_USERNAME"), os.environ.get("MAVEN_CENTRAL_PASSWORD"))
         if args.command == "upload":
-            if os.environ.get("GITHUB_RUN_ATTEMPT", "1") != "1" or args.checkpoint.exists():
-                raise PublicationError("Upload already attempted. Check Central Portal and resume by deployment ID.")
+            marker = args.checkpoint.with_suffix(args.checkpoint.suffix + ".attempted")
+            try:
+                if args.checkpoint.exists():
+                    raise FileExistsError
+                marker.touch(exist_ok=False)
+            except FileExistsError:
+                raise PublicationError("Upload already attempted. Check Central Portal and resume by deployment ID.") from None
             checkpoint(args.checkpoint, args.version, portal.upload(args.bundle, args.version))
         else:
             if args.timeout < 1 or args.interval < 1:
