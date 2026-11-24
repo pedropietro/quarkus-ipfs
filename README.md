@@ -126,9 +126,21 @@ bash integration-tests/src/test/scripts/kubo-ci.sh jvm integration-tests/target/
 bash integration-tests/src/test/scripts/kubo-ci.sh native integration-tests/target/*-runner target/kubo-native-logs
 ```
 
+### Stream a UnixFS file from Kubo
+
+With the optional CDI `KuboClient` enabled, use `writeFile(cid, output)` to stream a UnixFS file to a caller-owned `OutputStream`. Wait for the returned future before closing the stream. It completes with the number of bytes written.
+
+```java
+try (var output = Files.newOutputStream(destination)) {
+    long bytesWritten = kubo.writeFile(cid, output).join();
+}
+```
+
+For authenticated Kubo RPC, grant the configured bearer token access to `/api/v0/cat` for files and `/api/v0/block/get` for raw blocks.
+
 ### Verify the Kubo HTTP client
 
-Run the script after the JVM or native build. It starts the packaged application and a Kubo v0.43.1 server with bearer authentication on an isolated Docker network.
+Run the script after the JVM or native build. It starts the packaged application and a Kubo v0.43.1 server with bearer authentication on an isolated Docker network. It verifies a raw block and checks the size and SHA-256 of a 96 MiB UnixFS file streamed through the application with a 64 MiB heap.
 
 ```sh
 bash integration-tests/src/test/scripts/kubo-http.sh jvm integration-tests/target/quarkus-app

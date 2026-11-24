@@ -11,16 +11,31 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.StreamingOutput;
 
 import io.quarkiverse.ipfs.runtime.KuboClient;
+import io.smallrye.common.annotation.Blocking;
 
-@Path("/kubo/block")
+@Path("/kubo")
 public class KuboResource {
     @Inject
     Instance<KuboClient> client;
 
     @GET
-    @Path("/{cid}")
+    @Blocking
+    @Path("/file/{cid}")
+    public Response streamFile(@PathParam("cid") String cid) {
+        if (client.isUnsatisfied()) {
+            return Response.status(503).build();
+        }
+        var kubo = client.get();
+        StreamingOutput body = output -> kubo.writeFile(cid, output).join();
+        return Response.ok(body, MediaType.APPLICATION_OCTET_STREAM)
+                .header("X-Test-Max-Heap", Runtime.getRuntime().maxMemory()).build();
+    }
+
+    @GET
+    @Path("/block/{cid}")
     public Response getBlock(@PathParam("cid") String cid) throws Exception {
         if (client.isUnsatisfied()) {
             return Response.status(503).build();
