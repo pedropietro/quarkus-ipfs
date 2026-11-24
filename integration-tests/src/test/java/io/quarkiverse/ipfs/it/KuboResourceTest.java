@@ -2,14 +2,18 @@ package io.quarkiverse.ipfs.it;
 
 import static io.restassured.RestAssured.given;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.hamcrest.CoreMatchers.is;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
 
@@ -32,6 +36,52 @@ public class KuboResourceTest {
     static final String SLOW = cid((byte) 4);
     static final String TRUNCATED = cid((byte) 5);
     static final String UNAUTHORIZED = cid((byte) 6);
+    private static final String CANCEL = cid((byte) 7);
+    private static final String BLOCKED_TIMEOUT = cid((byte) 8);
+    private static final String BODY_TIMEOUT = cid((byte) 9);
+    private static final String WRITE_FAILURE = cid((byte) 10);
+    private static final String HEADER_TIMEOUT = cid((byte) 11);
+
+    Rpc rpc;
+
+    @Test
+    void cancellationClosesTheResponseWhileTheDestinationIsStillBlocked() throws Exception {
+        assertInterruptedTransfer("cancel", CANCEL, "cancelled:1:false:true");
+    }
+
+    @Test
+    void timeoutClosesTheResponseWhileTheDestinationIsStillBlocked() throws Exception {
+        assertInterruptedTransfer("blocked", BLOCKED_TIMEOUT, "timeout:1:false:true");
+    }
+
+    @Test
+    void timeoutClosesAStalledResponseBody() throws Exception {
+        assertInterruptedTransfer("read", BODY_TIMEOUT, "timeout:1:false:false");
+    }
+
+    @Test
+    void timeoutClosesTheExchangeBeforeResponseHeaders() throws Exception {
+        assertInterruptedTransfer("read", HEADER_TIMEOUT, "timeout:0:false:false");
+    }
+
+    @Test
+    void destinationFailureClosesTheResponseAndPreservesTheCause() throws Exception {
+        assertInterruptedTransfer("fail", WRITE_FAILURE, "destination-error:0:false:false");
+    }
+
+    @Test
+    void truncatedChunkedResponseFailsAndLeavesPartialOutput() {
+        given().get("/kubo/test-transfer/read/{cid}", TRUNCATED)
+                .then().statusCode(200).body(is("io-error:1:false:false"));
+    }
+
+    private void assertInterruptedTransfer(String mode, String cid, String outcome) throws Exception {
+        given().get("/kubo/test-transfer/{mode}/{cid}", mode, cid)
+                .then().statusCode(200).body(is(outcome));
+        var probe = rpc.probes.get("arg=" + cid);
+        probe.verifyDisconnect.countDown();
+        assertTrue(probe.disconnected.get(4, TimeUnit.SECONDS), "Kubo still had an open HTTP response");
+    }
 
     @Test
     void returnsExactBytesUsingPostAndBearerAuthentication() {
@@ -57,10 +107,59 @@ public class KuboResourceTest {
         return Cid.buildCidV1(Cid.Codec.Raw, Multihash.Type.sha2_256, hash).toString();
     }
 
+    private static final class TransferProbe {
+        private final CountDownLatch verifyDisconnect = new CountDownLatch(1);
+        private final CompletableFuture<Boolean> disconnected = new CompletableFuture<>();
+        private final boolean stallHeaders;
+
+        TransferProbe(boolean stallHeaders) {
+            this.stallHeaders = stallHeaders;
+        }
+
+        void serve(HttpExchange exchange) {
+            try {
+                if (stallHeaders && !verifyDisconnect.await(10, TimeUnit.SECONDS)) {
+                    return;
+                }
+                exchange.getResponseHeaders().set("X-Content-Length", Integer.toString(16 * 1024 * 1024));
+                exchange.sendResponseHeaders(200, 0);
+                var body = exchange.getResponseBody();
+                body.write(PAYLOAD[0]);
+                body.flush();
+                if (!verifyDisconnect.await(10, TimeUnit.SECONDS)) {
+                    return;
+                }
+                // A single write can succeed after the peer closes, so keep probing the connection.
+                var probe = new byte[64 * 1024];
+                for (int i = 0; i < 128; i++) {
+                    body.write(probe);
+                    body.flush();
+                }
+                disconnected.complete(false);
+            } catch (IOException expected) {
+                disconnected.complete(true);
+            } catch (InterruptedException failure) {
+                Thread.currentThread().interrupt();
+                disconnected.completeExceptionally(failure);
+            }
+        }
+    }
+
     public static class Rpc implements QuarkusTestResourceLifecycleManager {
         private HttpServer server;
         private ExecutorService executor;
         private final CountDownLatch stop = new CountDownLatch(1);
+        private final Map<String, TransferProbe> probes = Map.of(
+                "arg=" + CANCEL, new TransferProbe(false),
+                "arg=" + BLOCKED_TIMEOUT, new TransferProbe(false),
+                "arg=" + BODY_TIMEOUT, new TransferProbe(false),
+                "arg=" + WRITE_FAILURE, new TransferProbe(false),
+                "arg=" + HEADER_TIMEOUT, new TransferProbe(true));
+
+        @Override
+        public void inject(TestInjector injector) {
+            injector.injectIntoFields(this, new TestInjector.MatchesType(Rpc.class));
+        }
 
         @Override
         public Map<String, String> start() {
@@ -76,7 +175,7 @@ public class KuboResourceTest {
             server.start();
             return Map.of("quarkus.ipfs.kubo.api-url", "http://127.0.0.1:" + server.getAddress().getPort() + "/proxy/",
                     "quarkus.ipfs.kubo.bearer-token", "test-token",
-                    "quarkus.ipfs.kubo.timeout", "1s");
+                    "quarkus.ipfs.kubo.timeout", "2s");
         }
 
         private void handle(HttpExchange exchange) throws IOException {
@@ -90,6 +189,11 @@ public class KuboResourceTest {
                     return;
                 }
                 String query = exchange.getRequestURI().getRawQuery();
+                var probe = probes.get(query);
+                if (probe != null) {
+                    probe.serve(exchange);
+                    return;
+                }
                 if (("arg=" + UNAUTHORIZED).equals(query)) {
                     exchange.sendResponseHeaders(401, -1);
                     return;

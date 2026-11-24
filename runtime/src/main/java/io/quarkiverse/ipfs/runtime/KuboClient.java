@@ -3,6 +3,7 @@ package io.quarkiverse.ipfs.runtime;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.net.URI;
@@ -14,6 +15,7 @@ import java.time.Duration;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -81,9 +83,10 @@ public class KuboClient {
 
     /**
      * Stream a UnixFS file by CID with Kubo's {@code cat} RPC and return the number of bytes written.
-     * The caller owns the destination and must keep it open until the transfer completes. A failed transfer
-     * can leave partial data in the destination. The configured timeout covers the entire transfer.
-     * A timeout or cancellation interrupts the transfer, so a blocking destination should respond to interruption.
+     * The caller owns the destination, including flushing and closing it. A failed or cancelled transfer can leave
+     * partial data in the destination. The configured timeout covers the entire transfer.
+     * On timeout or cancellation, the client releases the HTTP response and interrupts the transfer. A destination
+     * write already in progress can finish after the future completes if the destination does not respond to interruption.
      * I/O errors, including incomplete responses, fail with {@link UncheckedIOException}.
      */
     public CompletableFuture<Long> writeFile(String cidString, OutputStream output) {
@@ -96,9 +99,10 @@ public class KuboClient {
         }
 
         var result = new CompletableFuture<Long>();
+        var responseBody = new CompletableFuture<InputStream>();
         var transfer = executor.submit(() -> {
             try {
-                result.complete(copyFile(cid, output));
+                result.complete(copyFile(cid, output, result, responseBody));
             } catch (InterruptedException failure) {
                 Thread.currentThread().interrupt();
                 result.completeExceptionally(failure);
@@ -111,6 +115,7 @@ public class KuboClient {
         result.orTimeout(timeout.toNanos(), TimeUnit.NANOSECONDS).whenComplete((value, failure) -> {
             if (failure instanceof TimeoutException || result.isCancelled()) {
                 transfer.cancel(true);
+                responseBody.thenAccept(KuboClient::closeAbortedBody);
             }
         });
         return result;
@@ -124,9 +129,15 @@ public class KuboClient {
         return request.build();
     }
 
-    private long copyFile(Cid cid, OutputStream output) throws IOException, InterruptedException {
+    private long copyFile(Cid cid, OutputStream output, CompletableFuture<Long> result,
+            CompletableFuture<InputStream> responseBody) throws IOException, InterruptedException {
         var reply = http.send(request("cat", cid), HttpResponse.BodyHandlers.ofInputStream());
         try (var input = reply.body()) {
+            // Publish the body even if the timeout or cancellation raced with receiving the headers.
+            responseBody.complete(input);
+            if (result.isDone()) {
+                throw new CancellationException();
+            }
             if (reply.statusCode() != 200) {
                 if (reply.statusCode() == 500
                         && new String(input.readNBytes(4096), UTF_8).contains("ipld: could not find " + cid)) {
@@ -146,11 +157,28 @@ public class KuboClient {
             if (size < 0) {
                 throw new IOException("Kubo cat did not return a valid file size");
             }
-            long written = input.transferTo(output);
+            byte[] buffer = new byte[16 * 1024];
+            long written = 0;
+            int length;
+            while (!result.isDone() && (length = input.read(buffer)) != -1) {
+                if (result.isDone()) {
+                    throw new CancellationException();
+                }
+                output.write(buffer, 0, length);
+                written += length;
+            }
             if (written != size) {
                 throw new IOException("Kubo cat returned " + written + " bytes, expected " + size);
             }
             return written;
+        }
+    }
+
+    private static void closeAbortedBody(InputStream body) {
+        try {
+            body.close();
+        } catch (IOException ignored) {
+            // Keep the timeout or cancellation as the result of the transfer.
         }
     }
 
