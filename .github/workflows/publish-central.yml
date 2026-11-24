@@ -143,17 +143,9 @@ jobs:
         run: |
           python3 .github/scripts/central_publication.py --version "$RELEASE_VERSION" wait --deployment-id "$DEPLOYMENT_ID"
 
-      - name: Build a consumer with an empty Maven cache
-        working-directory: ${{ runner.temp }}
+      - name: Run the consumer with an empty Maven cache
         env:
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
           QUARKUS_VERSION: ${{ steps.release.outputs.quarkus_version }}
         run: |
-          set -euo pipefail
-          cache=$(mktemp -d)
-          settings="$cache/settings.xml"
-          printf '<settings/>\n' > "$settings"
-          cp "$GITHUB_WORKSPACE/.github/central-consumer/pom.xml" "$cache/pom.xml"
-          bash "$GITHUB_WORKSPACE/mvnw" -B -ntp -s "$settings" -gs "$settings" \
-            -f "$cache/pom.xml" "-Dmaven.repo.local=$cache/repository" \
-            "-Dipfs.version=$RELEASE_VERSION" "-Dquarkus.version=$QUARKUS_VERSION" package
+          bash .github/central-consumer/verify.sh "$RELEASE_VERSION" "$QUARKUS_VERSION"

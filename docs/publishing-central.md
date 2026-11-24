@@ -24,7 +24,7 @@ git tag -a v0.2.0 -m 'Release 0.2.0'
 git push origin v0.2.0
 ```
 
-The workflow accepts tags of the form `vMAJOR.MINOR.PATCH` and requires the tagged commit to be on `main` with a matching Maven version. It runs the JVM and native jobs from `Build`, signs the artifacts, and waits for Central Portal to publish them. The last step packages an independent Quarkus application using the published extension and a new Maven cache. [Publication workflow](../.github/workflows/publish-central.yml)
+The workflow accepts tags of the form `vMAJOR.MINOR.PATCH` and requires the tagged commit to be on `main` with a matching Maven version. It runs the JVM and native jobs from `Build`, signs the artifacts, and waits for Central Portal to publish them. The last step packages an independent Quarkus application with a new Maven cache, then launches the JAR and verifies a block write and read by CID through the CDI bean. [Publication workflow](../.github/workflows/publish-central.yml)
 
 ## Recover a publication before upload
 
@@ -57,11 +57,13 @@ The `central-release` profile attaches Javadoc, signs the Maven artifacts, and c
 
 ## Upload and verify manually
 
-Upload the bundle in Central Portal. Review the validation results and confirm the publication there. After the Portal reports the deployment as published, check that Maven can resolve the release from Maven Central. Run this outside the source checkout and use an empty directory for the Maven cache.
+Upload the bundle in Central Portal. Review the validation results and confirm the publication there. Once the Portal reports the deployment as published, run the functional consumer check with the published extension version and its Quarkus BOM version. Run this command from the source checkout using Bash on Linux, or WSL on Windows.
 
 ~~~sh
-mvn -Dmaven.repo.local=./central-verification-repo dependency:get -Dartifact=io.github.pedropietro:quarkus-ipfs:0.1.0 -Dtransitive=false
+bash .github/central-consumer/verify.sh 0.4.0 4.0.0
 ~~~
+
+The script copies the consumer into a temporary directory, starts with an empty local Maven repository, and launches the packaged JAR. The application verifies the expected CID and compares the recovered binary bytes with the original payload.
 
 [Manual bundle upload](https://central.sonatype.org/publish/publish-portal-upload/)
 
