@@ -58,9 +58,9 @@ jobs:
         run: bash ./mvnw --version
 
       - name: Build with Maven
-        run: bash ./mvnw -B clean verify -Dno-format
+        run: python3 -B .github/scripts/maven_verify.py
 
-      - name: Test Central publication and recovery
+      - name: Test CI recovery and Central publication
         if: matrix.java == '21'
         run: python3 -B -m unittest discover -s .github/scripts -v
 
@@ -113,7 +113,7 @@ jobs:
           builder_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$builder_image")
           echo "Native builder image: $builder_digest"
           echo "builder_image=$builder_digest" >> "$GITHUB_OUTPUT"
-          bash ./mvnw -B -pl deployment,integration-tests -am clean verify -Dno-format -Dnative \
+          python3 -B .github/scripts/maven_verify.py -pl deployment,integration-tests -am -Dnative \
             -Dquarkus.native.container-build=true "-Dquarkus.native.builder-image=$builder_digest" \
             -Dnative.surefire.skip=true
 

@@ -5,12 +5,13 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlsplit
 from urllib.error import HTTPError, URLError
 
 from central_publication import ARTIFACTS, main
 from central_upload_history import PUBLISH_JOB, UPLOAD_STEP, UploadHistoryError, check_upload
+from maven_verify import verify
 
 
 DEPLOYMENT = "77b32e39-e307-4886-a93a-e0c7c6d66471"
@@ -90,6 +91,33 @@ class CentralPublicationTest(unittest.TestCase):
                 check_upload(tag, commit, run_id, 3)
         self.assertEqual(0, self.wait())
         self.assertEqual(["upload", "status"], self.endpoints())
+
+    def verify_with_429(self, next_status):
+        def attempt(status, line):
+            process = MagicMock()
+            process.__enter__.return_value = process
+            process.stdout = io.StringIO(line + "\n")
+            process.wait.return_value = status
+            return process
+
+        rate_limit = "[FATAL] Could not transfer artifact parent:pom:1 from/to central: HTTP Status: 429"
+        with (patch("maven_verify.subprocess.Popen", side_effect=[
+            attempt(1, rate_limit), attempt(next_status, rate_limit if next_status else "[INFO] BUILD SUCCESS"),
+        ]), patch("maven_verify.time.sleep")):
+            return verify([])
+
+    def test_recovered_build_leaves_upload_guard_in_effect(self):
+        self.assertEqual(0, self.verify_with_429(0))
+        self.assertEqual([], self.endpoints())
+        self.opener.return_value = io.BytesIO(DEPLOYMENT.encode())
+        self.assertEqual(0, self.upload())
+        self.assertEqual(1, self.upload())
+        self.assertEqual(["upload"], self.endpoints())
+
+    def test_persistent_rate_limit_stops_before_upload(self):
+        self.assertEqual(1, self.verify_with_429(1))
+        self.assertEqual([], self.endpoints())
+        self.assertFalse(self.checkpoint.exists())
 
     def test_ignores_transient_status_errors_and_waits_for_publication(self):
         self.opener.side_effect = [
