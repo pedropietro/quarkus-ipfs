@@ -128,7 +128,7 @@ bash integration-tests/src/test/scripts/kubo-ci.sh native integration-tests/targ
 
 ### Stream a UnixFS file from Kubo
 
-With the optional CDI `KuboClient` enabled, use `writeFile(cid, output)` to stream a UnixFS file to a caller-owned `OutputStream`. Wait for the returned future before closing the stream. It completes with the number of bytes written.
+With the optional CDI `KuboClient` enabled, use `writeFile(cid, output)` to stream a UnixFS file to a caller-owned `OutputStream`. Wait for the returned future before closing the stream. It completes with the number of bytes written. Timeout, cancellation or I/O failure can leave partial output. The client releases the HTTP response on timeout or cancellation. A destination write already in progress can finish after the returned future fails if the destination does not respond to interruption.
 
 ```java
 try (var output = Files.newOutputStream(destination)) {
