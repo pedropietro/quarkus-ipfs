@@ -30,6 +30,7 @@ Call `resolve(peerId, minResults)` with the publisher's base58 peer ID.
 The lookup finishes the current batch of peer queries after reaching the requested number of valid records.
 It returns the highest sequence among the records found, using the later expiration time to break a tie.
 The future fails when the lookup times out or finds no valid records.
+The node accepts V2-only records and checks any legacy Protobuf fields against the signed DAG-CBOR values.
 Configure `quarkus.ipfs.bootstrap-addresses` to join the DHT and share records with other peers.
 
 == Micrometer metrics

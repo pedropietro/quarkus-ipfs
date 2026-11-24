@@ -106,6 +106,17 @@ bash ./mvnw -B -pl deployment,integration-tests -am clean verify \
 
 GitHub Actions publishes the Surefire and Failsafe reports for the JVM and native jobs. [Build workflow](.github/workflows/build.yml)
 
+### Verify IPNS with Kubo
+
+Run the script against the packaged JAR or Linux native executable created by the corresponding build.
+The script starts the application and two Kubo v0.43.1 peers on an isolated Docker network.
+It checks publication and resolution in both directions, including a V2-only record published by Kubo.
+
+```sh
+bash integration-tests/src/test/scripts/kubo-ipns.sh jvm integration-tests/target/quarkus-app
+bash integration-tests/src/test/scripts/kubo-ipns.sh native integration-tests/target/quarkus-ipfs-integration-tests-0.3.0-runner
+```
+
 ### Verify UnixFS with Kubo
 
 Build the integration-test JAR with the JVM command above and start a fresh copy of the application.

@@ -117,6 +117,24 @@ public class IpnsResourceTest {
     }
 
     @Test
+    public void resolvesV2OnlyRecordAndRejectsConflictingLegacyValue() throws Exception {
+        var key = newKey();
+        var expiry = LocalDateTime.now(ZoneOffset.UTC).plusHours(1);
+        byte[] value = (PATH + "signed").getBytes(UTF_8);
+        var v2 = Ipns.IpnsEntry.parseFrom(signedRecord(key, "signed", 9, expiry)).toBuilder()
+                .clearValue().clearSequence().clearTtl().clearValidityType().clearValidity().build();
+        connect(first);
+
+        byte[] conflicting = v2.toBuilder().setValue(ByteString.copyFromUtf8(PATH + "unsigned")).build().toByteArray();
+        first.records.put(publisher(key), new IpnsRecord(conflicting, 9, TTL_NANOS, expiry, value));
+        resolve(key, 1).then().statusCode(404);
+
+        first.records.remove(publisher(key));
+        first.records.put(publisher(key), new IpnsRecord(v2.toByteArray(), 9, TTL_NANOS, expiry, value));
+        resolve(key, 1).then().statusCode(200).body(is(PATH + "signed"));
+    }
+
+    @Test
     public void rejectsExpiredRecordAdvertisedByAnotherPeer() {
         var key = newKey();
         var now = LocalDateTime.now(ZoneOffset.UTC);
