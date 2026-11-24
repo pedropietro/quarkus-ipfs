@@ -1,19 +1,50 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${QUARKUS_URL:?Set QUARKUS_URL to a fresh integration-test application URL}"
-: "${KUBO_CONTAINER:?Set KUBO_CONTAINER to the offline Kubo container name}"
+source "$(dirname "${BASH_SOURCE[0]}")/kubo-test-lib.sh"
+
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
-# Git Bash should pass IPFS paths verbatim to docker.exe.
-export MSYS_NO_PATHCONV=1
+app=
+cleanup() {
+    local status=$?
+    if [[ -n "$app" ]]; then
+        cleanup_network "$status" "$network" "$app" "$KUBO_CONTAINER"
+    fi
+    rm -rf "$work"
+}
+trap cleanup EXIT
+
+if (( $# > 0 )); then
+    mode=$1
+    artifact=${2:?Pass the packaged application}
+    check_artifact "$mode" "$artifact"
+    network=quarkus-kubo-unixfs-$$-$RANDOM
+    app="$network-app"
+    KUBO_CONTAINER="$network-kubo"
+    QUARKUS_URL=http://127.0.0.1:8080
+    docker network create --internal "$network" >/dev/null
+    docker run -d --name "$KUBO_CONTAINER" --network "$network" --entrypoint sh "$kubo_image" -ec '
+        ipfs init --profile=test
+        exec ipfs daemon --offline
+    ' >/dev/null
+    start_app "$app" "$mode" "$artifact" --network "$network"
+    await_ready kubo_ready "$KUBO_CONTAINER"
+    await_ready docker exec "$app" curl --fail --silent --max-time 1 "$QUARKUS_URL/ipfs/node/peer-id"
+else
+    : "${QUARKUS_URL:?Set QUARKUS_URL to a fresh integration-test application URL}"
+    : "${KUBO_CONTAINER:?Set KUBO_CONTAINER to the offline Kubo container name}"
+fi
 
 kubo() {
     docker exec -i "$KUBO_CONTAINER" ipfs --timeout=70s "$@"
 }
 
 request() {
-    curl --fail --silent --show-error --max-time 30 "$@"
+    if [[ -n "$app" ]]; then
+        docker exec -i "$app" curl --fail --silent --show-error --max-time 30 "$@"
+    else
+        curl --fail --silent --show-error --max-time 30 "$@"
+    fi
 }
 
 # Distinct payloads keep the two content-addressed block sets independent.
@@ -30,7 +61,7 @@ while IFS= read -r cid; do
         bafybei*) codec=dag-pb ;;
         *) printf 'Unexpected block CID %s\n' "$cid" >&2; exit 1 ;;
     esac
-    stored=$(request "$QUARKUS_URL/ipfs/block/$cid" | kubo block put --cid-codec="$codec" --mhtype=sha2-256)
+    stored=$(request "$QUARKUS_URL/ipfs/block/$cid" </dev/null | kubo block put --cid-codec="$codec" --mhtype=sha2-256)
     test "$stored" = "$cid"
 done <<<"$quarkus_blocks"
 

@@ -3,15 +3,8 @@ set -euo pipefail
 
 mode=${1:?Usage: kubo-ipns.sh jvm|native path-to-app}
 artifact=${2:?Pass the quarkus-app directory or the Linux native executable}
-case "$mode" in
-    jvm|native) ;;
-    *) printf 'Expected jvm or native\n' >&2; exit 1 ;;
-esac
-
-# Preserve IPFS multiaddresses when invoking Docker from Git Bash.
-export MSYS_NO_PATHCONV=1
-app_image=${APP_IMAGE:-quay.io/quarkus/ubi10-quarkus-mandrel-builder-image:jdk-25}
-kubo_image=ipfs/kubo:v0.43.1
+source "$(dirname "${BASH_SOURCE[0]}")/kubo-test-lib.sh"
+check_artifact "$mode" "$artifact"
 network=quarkus-ipns-$$-$RANDOM
 app="$network-nabu"
 kubo_node="$network-kubo"
@@ -23,18 +16,8 @@ app_ip="$prefix.2"
 kubo_ip="$prefix.3"
 router_ip="$prefix.4"
 
-cleanup() {
-    local status=$?
-    if (( status != 0 )); then
-        docker logs "$app" >&2 || true
-        docker logs "$kubo_node" >&2 || true
-        docker logs "$router" >&2 || true
-    fi
-    docker rm -fv "$app" "$kubo_node" "$router" >/dev/null 2>&1 || true
-    docker network rm "$network" >/dev/null 2>&1 || true
-}
+trap 'cleanup_network "$?" "$network" "$app" "$kubo_node" "$router"' EXIT
 docker network create --internal --subnet "$prefix.0/24" "$network" >/dev/null
-trap cleanup EXIT
 
 start_kubo() {
     docker run -d --name "$1" --network "$network" --ip "$2" \
@@ -51,23 +34,8 @@ start_kubo() {
 start_kubo "$kubo_node" "$kubo_ip"
 start_kubo "$router" "$router_ip"
 
-docker run -d --name "$app" --network "$network" --ip "$app_ip" --user 0:0 \
-    -e "QUARKUS_IPFS_SWARM_ADDRESSES=/ip4/$app_ip/tcp/4001" \
-    -e QUARKUS_HTTP_HOST=127.0.0.1 \
-    --entrypoint bash "$app_image" -ec '
-        until [[ -e /tmp/start-app ]]; do sleep 0.2; done
-        if [[ "$1" == jvm ]]; then
-            exec java -jar /tmp/quarkus-app/quarkus-run.jar
-        fi
-        chmod +x /tmp/ipfs-runner
-        exec /tmp/ipfs-runner
-    ' bash "$mode" >/dev/null
-if [[ "$mode" == jvm ]]; then
-    docker cp "$artifact" "$app:/tmp/quarkus-app"
-else
-    docker cp "$artifact" "$app:/tmp/ipfs-runner"
-fi
-docker exec "$app" touch /tmp/start-app
+start_app "$app" "$mode" "$artifact" --network "$network" --ip "$app_ip" \
+    -e "QUARKUS_IPFS_SWARM_ADDRESSES=/ip4/$app_ip/tcp/4001"
 
 kubo() {
     docker exec -i "$kubo_node" ipfs --timeout=25s "$@"
@@ -79,18 +47,6 @@ kubo_router() {
 
 request() {
     docker exec -i "$app" curl --fail --silent --show-error --max-time 35 "$@"
-}
-
-await_ready() {
-    local attempt
-    for (( attempt=0; attempt<60; attempt++ )); do
-        if "$@" >/dev/null 2>&1; then
-            return 0
-        fi
-        sleep 1
-    done
-    printf 'Timed out waiting for %s\n' "$*" >&2
-    return 1
 }
 
 url=http://127.0.0.1:8080
