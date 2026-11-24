@@ -2,6 +2,7 @@ package io.quarkiverse.ipfs.runtime;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -10,26 +11,33 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
+import java.net.http.HttpRequest.BodyPublishers;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import jakarta.annotation.PreDestroy;
 import jakarta.inject.Inject;
 
 import org.eclipse.microprofile.context.ManagedExecutor;
 
+import com.google.gson.JsonParser;
+
 import io.ipfs.cid.Cid;
 import io.quarkiverse.ipfs.runtime.config.IpfsRuntimeConfig;
 
-/** CDI client for reading raw blocks and UnixFS files from a configured Kubo HTTP RPC server. */
+/** CDI client for reading raw blocks and transferring UnixFS files through a configured Kubo HTTP RPC server. */
 public class KuboClient {
+    private static final int MAX_ADD_RESPONSE_BYTES = 4096;
+
     private final HttpClient http;
     private final ManagedExecutor executor;
     private final String rpcBase;
@@ -98,11 +106,34 @@ public class KuboClient {
             return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid IPFS CID", failure));
         }
 
-        var result = new CompletableFuture<Long>();
+        return transfer((result, body) -> copyFile(cid, output, result, body));
+    }
+
+    /**
+     * Import one UnixFS file through Kubo's {@code add} RPC and return its root CID as a string.
+     * Set {@code pin} to ask Kubo to retain the imported file during garbage collection.
+     * The caller owns the source and must keep it open while the transfer reads it.
+     * The configured timeout covers the entire upload and response. On timeout or cancellation, a source read
+     * already in progress can finish later and Kubo may have stored data from the request.
+     * HTTP failures use {@link KuboRequestException} and I/O failures use {@link UncheckedIOException}.
+     */
+    public CompletableFuture<String> addFile(InputStream input, boolean pin) {
+        Objects.requireNonNull(input, "input");
+        return transfer((result, body) -> uploadFile(input, pin, result, body));
+    }
+
+    @FunctionalInterface
+    private interface StreamTransfer<T> {
+        T run(CompletableFuture<T> result, CompletableFuture<InputStream> responseBody)
+                throws IOException, InterruptedException;
+    }
+
+    private <T> CompletableFuture<T> transfer(StreamTransfer<T> action) {
+        var result = new CompletableFuture<T>();
         var responseBody = new CompletableFuture<InputStream>();
         var transfer = executor.submit(() -> {
             try {
-                result.complete(copyFile(cid, output, result, responseBody));
+                result.complete(action.run(result, responseBody));
             } catch (InterruptedException failure) {
                 Thread.currentThread().interrupt();
                 result.completeExceptionally(failure);
@@ -122,11 +153,105 @@ public class KuboClient {
     }
 
     private HttpRequest request(String operation, Cid cid) {
-        var request = HttpRequest
-                .newBuilder(URI.create(rpcBase + operation + "?arg=" + URLEncoder.encode(cid.toString(), UTF_8)))
-                .POST(HttpRequest.BodyPublishers.noBody());
+        return request(operation + "?arg=" + URLEncoder.encode(cid.toString(), UTF_8))
+                .POST(BodyPublishers.noBody()).build();
+    }
+
+    private HttpRequest.Builder request(String path) {
+        var request = HttpRequest.newBuilder(URI.create(rpcBase + path));
         bearerToken.ifPresent(token -> request.header("Authorization", "Bearer " + token));
-        return request.build();
+        return request;
+    }
+
+    private String uploadFile(InputStream input, boolean pin, CompletableFuture<String> result,
+            CompletableFuture<InputStream> responseBody) throws IOException, InterruptedException {
+        String boundary = "quarkus-ipfs-" + UUID.randomUUID();
+        String preamble = "--" + boundary + "\r\n"
+                + "Content-Disposition: form-data; name=\"file\"; filename=\"file\"\r\n"
+                + "Content-Type: application/octet-stream\r\n\r\n";
+        var source = new UploadSource(input, result);
+        var content = BodyPublishers.concat(BodyPublishers.ofString(preamble),
+                BodyPublishers.ofInputStream(source::open), BodyPublishers.ofString("\r\n--" + boundary + "--\r\n"));
+        var request = request("add?cid-version=1&pin=" + pin + "&progress=false&enc=json")
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .POST(content).build();
+
+        var reply = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        try (var body = reply.body()) {
+            responseBody.complete(body);
+            if (result.isDone()) {
+                throw new CancellationException();
+            }
+            if (reply.statusCode() != 200) {
+                throw new KuboRequestException("add", reply.statusCode());
+            }
+            if (!source.exhausted) {
+                throw new IOException("Kubo add returned before reading the entire file");
+            }
+            byte[] data = body.readNBytes(MAX_ADD_RESPONSE_BYTES + 1);
+            if (data.length > MAX_ADD_RESPONSE_BYTES) {
+                throw new IOException("Kubo add response exceeded " + MAX_ADD_RESPONSE_BYTES + " bytes");
+            }
+            return addedCid(data);
+        }
+    }
+
+    private static String addedCid(byte[] data) throws IOException {
+        try {
+            var reply = JsonParser.parseString(new String(data, UTF_8)).getAsJsonObject();
+            var hash = reply.get("Hash");
+            if (hash == null || !hash.isJsonPrimitive() || !hash.getAsJsonPrimitive().isString() || reply.has("Message")) {
+                throw new IOException("Kubo add response did not contain a file CID");
+            }
+            return Cid.decode(hash.getAsString()).toString();
+        } catch (RuntimeException failure) {
+            throw new IOException("Invalid Kubo add response", failure);
+        }
+    }
+
+    private static final class UploadSource extends FilterInputStream {
+        private final CompletableFuture<?> result;
+        private final AtomicBoolean opened = new AtomicBoolean();
+        private volatile boolean exhausted;
+
+        private UploadSource(InputStream input, CompletableFuture<?> result) {
+            super(input);
+            this.result = result;
+        }
+
+        private InputStream open() {
+            // HttpClient may ask for a fresh stream if it retries an exchange. The caller's stream is one-shot.
+            return opened.compareAndSet(false, true) ? this : null;
+        }
+
+        @Override
+        public int read() throws IOException {
+            checkActive();
+            return checkRead(in.read());
+        }
+
+        @Override
+        public int read(byte[] bytes, int offset, int length) throws IOException {
+            checkActive();
+            return checkRead(in.read(bytes, offset, length));
+        }
+
+        private int checkRead(int count) throws IOException {
+            checkActive();
+            exhausted = count == -1;
+            return count;
+        }
+
+        private void checkActive() throws IOException {
+            if (result.isDone()) {
+                throw new IOException("Kubo add was interrupted");
+            }
+        }
+
+        @Override
+        public void close() {
+            // The caller owns the source.
+        }
     }
 
     private long copyFile(Cid cid, OutputStream output, CompletableFuture<Long> result,

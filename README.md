@@ -138,9 +138,19 @@ try (var output = Files.newOutputStream(destination)) {
 
 For authenticated Kubo RPC, grant the configured bearer token access to `/api/v0/cat` for files and `/api/v0/block/get` for raw blocks.
 
+### Import a UnixFS file through Kubo
+
+Call `KuboClient.addFile(input, pin)` to upload a file as a stream and receive its root CID. Set `pin` to choose whether Kubo should retain the file during garbage collection. The caller closes the input stream. Grant the bearer token access to `/api/v0/add` for uploads.
+
+```java
+try (var input = Files.newInputStream(source)) {
+    String cid = kubo.addFile(input, true).join();
+}
+```
+
 ### Verify the Kubo HTTP client
 
-Run the script after the JVM or native build. It starts the packaged application and a Kubo v0.43.1 server with bearer authentication on an isolated Docker network. It verifies a raw block and checks the size and SHA-256 of a 96 MiB UnixFS file streamed through the application with a 64 MiB heap.
+Run the script after the JVM or native build. It starts the packaged application and a Kubo v0.43.1 server with bearer authentication on an isolated Docker network. It verifies a raw block and checks the size and SHA-256 of a 96 MiB UnixFS file streamed through the application with a 64 MiB heap. It also imports an empty file and a 96 MiB file with that heap limit, verifies pinning, and reads each returned CID through both the client and the Kubo CLI.
 
 ```sh
 bash integration-tests/src/test/scripts/kubo-http.sh jvm integration-tests/target/quarkus-app

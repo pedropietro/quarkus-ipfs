@@ -54,7 +54,7 @@ Block counters cover `BlockService.get` and `put`. A block read counts once, inc
 IPNS counters cover `IpnsService.publish` and `resolve`. A publication that succeeds locally with zero DHT acknowledgements counts as a success.
 Prometheus exposes these meters as `ipfs_peers_connected` and `ipfs_operations_total`.
 
-== Read blocks and UnixFS files through an external Kubo node
+== Read blocks and transfer UnixFS files through an external Kubo node
 
 Enable `quarkus.ipfs.kubo.enabled=true` at build time to inject the optional CDI bean `io.quarkiverse.ipfs.runtime.KuboClient`.
 The client works alongside the embedded node. Set `quarkus.ipfs.enabled=false` at build time to run with the Kubo client only.
@@ -76,6 +76,11 @@ Call `KuboClient.writeFile(cid, output)` to stream a UnixFS file and obtain the 
 The caller manages flushing and closing the destination.
 On cancellation or timeout, the client releases the HTTP response and interrupts the transfer.
 An in-progress write can finish later if the destination ignores interruption. The destination can contain partial data after a failure.
+
+Call `KuboClient.addFile(input, pin)` to import one UnixFS file with the Kubo add RPC and return its root CID.
+The caller closes the input stream. Set `pin` to choose whether Kubo retains the imported file during garbage collection.
+The timeout covers the request body and response. Cancellation or timeout can leave data on the Kubo node.
+Grant the configured bearer token access to `/api/v0/add` for uploads.
 
 == Storage and identity
 

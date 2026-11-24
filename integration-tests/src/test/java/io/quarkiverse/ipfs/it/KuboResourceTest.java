@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -43,6 +44,45 @@ public class KuboResourceTest {
     private static final String HEADER_TIMEOUT = cid((byte) 11);
 
     Rpc rpc;
+
+    @Test
+    void importsOneFileAndLeavesTheSourceOpen() {
+        assertUpload(UploadReply.CID, "read", "cid:" + OK + ":false");
+    }
+
+    @Test
+    void propagatesUploadAuthorizationFailure() {
+        assertUpload(UploadReply.UNAUTHORIZED, "read", "http:401:false");
+    }
+
+    @Test
+    void failsWhenTheUploadSourceFails() {
+        assertUpload(UploadReply.CID, "fail", "io-error:false");
+    }
+
+    @Test
+    void timesOutWhenTheUploadResponseStalls() {
+        assertUpload(UploadReply.SLOW, "read", "timeout:false");
+    }
+
+    @Test
+    void rejectsInvalidOrOversizedAddResponses() {
+        assertUpload(UploadReply.INVALID, "read", "io-error:false");
+        assertUpload(UploadReply.TOO_LARGE, "read", "io-error:false");
+    }
+
+    private void assertUpload(UploadReply reply, String mode, String outcome) {
+        rpc.uploadReply = reply;
+        given().get("/kubo/test-upload/{mode}", mode).then().statusCode(200).body(is(outcome));
+    }
+
+    private enum UploadReply {
+        CID,
+        UNAUTHORIZED,
+        SLOW,
+        INVALID,
+        TOO_LARGE
+    }
 
     @Test
     void cancellationClosesTheResponseWhileTheDestinationIsStillBlocked() throws Exception {
@@ -147,6 +187,7 @@ public class KuboResourceTest {
 
     public static class Rpc implements QuarkusTestResourceLifecycleManager {
         private HttpServer server;
+        private volatile UploadReply uploadReply;
         private ExecutorService executor;
         private final CountDownLatch stop = new CountDownLatch(1);
         private final Map<String, TransferProbe> probes = Map.of(
@@ -172,6 +213,7 @@ public class KuboResourceTest {
             server.setExecutor(executor);
             server.createContext("/proxy/api/v0/block/get", this::handle);
             server.createContext("/proxy/api/v0/cat", this::handle);
+            server.createContext("/proxy/api/v0/add", this::handle);
             server.start();
             return Map.of("quarkus.ipfs.kubo.api-url", "http://127.0.0.1:" + server.getAddress().getPort() + "/proxy/",
                     "quarkus.ipfs.kubo.bearer-token", "test-token",
@@ -189,6 +231,10 @@ public class KuboResourceTest {
                     return;
                 }
                 String query = exchange.getRequestURI().getRawQuery();
+                if (exchange.getRequestURI().getPath().endsWith("/add")) {
+                    addFile(exchange);
+                    return;
+                }
                 var probe = probes.get(query);
                 if (probe != null) {
                     probe.serve(exchange);
@@ -224,6 +270,26 @@ public class KuboResourceTest {
                 } else {
                     exchange.sendResponseHeaders(400, -1);
                 }
+            }
+        }
+
+        private void addFile(HttpExchange exchange) throws IOException {
+            exchange.getRequestBody().transferTo(OutputStream.nullOutputStream());
+            switch (uploadReply) {
+                case CID -> respond(exchange, 200, ("{\"Hash\":\"" + OK + "\"}\n").getBytes(UTF_8));
+                case UNAUTHORIZED -> exchange.sendResponseHeaders(401, -1);
+                case SLOW -> {
+                    exchange.sendResponseHeaders(200, 0);
+                    exchange.getResponseBody().write('{');
+                    exchange.getResponseBody().flush();
+                    try {
+                        stop.await();
+                    } catch (InterruptedException ignored) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+                case INVALID -> respond(exchange, 200, "{\"Hash\":\"invalid-cid\"}\n".getBytes(UTF_8));
+                case TOO_LARGE -> respond(exchange, 200, new byte[4097]);
             }
         }
 
