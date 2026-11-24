@@ -7,7 +7,12 @@ mode=${3:-jvm}
 package_args=()
 case "$mode" in
     jvm) ;;
-    native) package_args=(-Dquarkus.native.enabled=true -Dquarkus.package.jar.enabled=false) ;;
+    native)
+        package_args=(-Dquarkus.native.enabled=true -Dquarkus.package.jar.enabled=false)
+        if [[ "$ipfs_version" == 0.5.0 ]]; then
+            package_args+=(-Pnetty-compat)
+        fi
+        ;;
     *) printf 'Expected jvm or native, got %s\n' "$mode" >&2; exit 1 ;;
 esac
 fixture=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)

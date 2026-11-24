@@ -69,7 +69,7 @@ QUARKUS_NATIVE_BUILDER_IMAGE=quay.io/quarkus/ubi10-quarkus-mandrel-builder-image
   bash .github/central-consumer/verify.sh 0.5.0 4.0.0 native
 ~~~
 
-Each invocation copies the consumer into its own temporary directory and starts with an empty local Maven repository. The JVM invocation launches the packaged JAR. The native invocation requires Docker for the container build shown above and launches the resulting Linux executable. Both verify the expected CID and compare the recovered binary bytes with the original payload.
+Each invocation copies the consumer into its own temporary directory and starts with an empty local Maven repository. The JVM invocation launches the packaged JAR. The native invocation requires Docker for the container build shown above and launches the resulting Linux executable. Both verify the expected CID and compare the recovered binary bytes with the original payload. In native mode for the published 0.5.0 artifacts, the script activates a compatibility profile that adds Quarkus Netty for its runtime initialization rules. The 0.6.0 extension declares this dependency itself.
 
 [Manual bundle upload](https://central.sonatype.org/publish/publish-portal-upload/)
 
