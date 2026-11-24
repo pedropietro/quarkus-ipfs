@@ -50,6 +50,24 @@ Block counters cover `BlockService.get` and `put`. A block read counts once, inc
 IPNS counters cover `IpnsService.publish` and `resolve`. A publication that succeeds locally with zero DHT acknowledgements counts as a success.
 Prometheus exposes these meters as `ipfs_peers_connected` and `ipfs_operations_total`.
 
+== Read blocks through an external Kubo node
+
+Enable `quarkus.ipfs.kubo.enabled=true` at build time to inject the optional CDI bean `io.quarkiverse.ipfs.runtime.KuboClient`.
+The client works alongside the embedded node. Set `quarkus.ipfs.enabled=false` at build time to run with the Kubo client only.
+
+[source,properties]
+----
+quarkus.ipfs.kubo.enabled=true
+quarkus.ipfs.kubo.api-url=http://127.0.0.1:5001
+quarkus.ipfs.kubo.timeout=30s
+----
+
+Supply `quarkus.ipfs.kubo.bearer-token` through a secret-backed configuration source when Kubo requires bearer authentication.
+Use HTTPS for a remote RPC server that carries credentials.
+The base URL may include a reverse-proxy prefix.
+
+Call `KuboClient.getBlock(cid)` to fetch raw bytes asynchronously. Invalid CIDs fail with `IllegalArgumentException`, missing blocks with `NoSuchElementException`, and other HTTP errors with `KuboRequestException`. A request that reaches its time limit fails with `TimeoutException`.
+
 == Storage and identity
 
 The default storage backend, `RAM`, keeps blocks in memory for one application run.

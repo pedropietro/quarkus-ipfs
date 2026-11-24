@@ -106,6 +106,15 @@ bash ./mvnw -B -pl deployment,integration-tests -am clean verify \
 
 GitHub Actions publishes the Surefire and Failsafe reports for the JVM and native jobs. [Build workflow](.github/workflows/build.yml)
 
+### Verify the Kubo HTTP client
+
+Run the script after the JVM or native build. It starts the packaged application and a Kubo v0.43.1 server with bearer authentication on an isolated Docker network.
+
+```sh
+bash integration-tests/src/test/scripts/kubo-http.sh jvm integration-tests/target/quarkus-app
+bash integration-tests/src/test/scripts/kubo-http.sh native integration-tests/target/*-runner
+```
+
 ### Verify IPNS with Kubo
 
 Run the script against the packaged JAR or Linux native executable created by the corresponding build.

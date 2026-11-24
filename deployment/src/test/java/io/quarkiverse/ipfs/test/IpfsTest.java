@@ -10,6 +10,7 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 import org.peergos.EmbeddedIpfs;
 
 import io.quarkiverse.ipfs.runtime.IpfsClient;
+import io.quarkiverse.ipfs.runtime.KuboClient;
 import io.quarkiverse.ipfs.runtime.health.IpfsHealthCheck;
 import io.quarkus.arc.Arc;
 import io.quarkus.test.QuarkusExtensionTest;
@@ -30,6 +31,12 @@ public class IpfsTest {
     @Test
     public void testEmbeddedIpfsIsInjectable() {
         Assertions.assertNotNull(embeddedIpfs, "EmbeddedIpfs bean must be injectable");
+    }
+
+    @Test
+    public void startsWithoutTheOptionalKuboClient() {
+        Assertions.assertFalse(Arc.container().instance(KuboClient.class).isAvailable());
+        Assertions.assertFalse(embeddedIpfs.node.listenAddresses().isEmpty());
     }
 
     @Test
