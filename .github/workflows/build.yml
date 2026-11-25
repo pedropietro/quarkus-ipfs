@@ -75,7 +75,7 @@ jobs:
       - name: Verify the Kubo-only consumer over HTTPS (JVM)
         if: matrix.java != '21'
         timeout-minutes: 12
-        run: bash .github/central-consumer/verify.sh --reactor jvm kubo-https
+        run: KUBO_ROTATION_ROUNDS=20 bash .github/central-consumer/verify.sh --reactor jvm kubo-https
 
       - name: Verify optional Kubo metrics (JVM)
         if: matrix.java != '21'
@@ -156,7 +156,7 @@ jobs:
         env:
           QUARKUS_NATIVE_CONTAINER_BUILD: 'true'
           QUARKUS_NATIVE_BUILDER_IMAGE: ${{ steps.native-build.outputs.builder_image }}
-        run: bash .github/central-consumer/verify.sh --reactor native kubo-https
+        run: KUBO_ROTATION_ROUNDS=20 bash .github/central-consumer/verify.sh --reactor native kubo-https
 
       - name: Verify optional Kubo metrics (native)
         timeout-minutes: 20
