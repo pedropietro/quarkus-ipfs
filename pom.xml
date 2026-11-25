@@ -9,7 +9,7 @@
     </parent>
     <groupId>io.github.pedropietro</groupId>
     <artifactId>quarkus-ipfs-parent</artifactId>
-    <version>0.7.0</version>
+    <version>0.8.0</version>
     <packaging>pom</packaging>
     <name>Quarkus Ipfs - Parent</name>
     <description>Experimental Quarkus extension with an embedded IPFS node powered by Peergos Nabu.</description>

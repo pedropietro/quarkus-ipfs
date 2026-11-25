@@ -86,9 +86,11 @@ jobs:
             exit 1
           fi
           echo "quarkus_version=$quarkus_version" >> "$GITHUB_OUTPUT"
-          if [[ "$version" != 0.[0-6].* ]]; then
-            echo "kubo_consumer=true" >> "$GITHUB_OUTPUT"
-          fi
+          case "$version" in
+            0.[0-6].*) ;;
+            0.7.*) echo "kubo_scenario=kubo" >> "$GITHUB_OUTPUT" ;;
+            *) echo "kubo_scenario=kubo-https" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - name: Verify upload history
         if: github.event_name == 'push'
@@ -154,12 +156,13 @@ jobs:
           bash .github/central-consumer/verify.sh "$RELEASE_VERSION" "$QUARKUS_VERSION" jvm
 
       - name: Run the JVM Kubo-only consumer with an empty Maven cache
-        if: steps.release.outputs.kubo_consumer == 'true'
+        if: steps.release.outputs.kubo_scenario != ''
         env:
+          KUBO_SCENARIO: ${{ steps.release.outputs.kubo_scenario }}
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
           QUARKUS_VERSION: ${{ steps.release.outputs.quarkus_version }}
         run: |
-          bash .github/central-consumer/verify.sh "$RELEASE_VERSION" "$QUARKUS_VERSION" jvm kubo
+          bash .github/central-consumer/verify.sh "$RELEASE_VERSION" "$QUARKUS_VERSION" jvm "$KUBO_SCENARIO"
 
       - name: Run the native consumer with an empty Maven cache
         id: native-consumer
@@ -178,11 +181,12 @@ jobs:
           bash .github/central-consumer/verify.sh "$RELEASE_VERSION" "$QUARKUS_VERSION" native
 
       - name: Run the native Kubo-only consumer with an empty Maven cache
-        if: steps.release.outputs.kubo_consumer == 'true'
+        if: steps.release.outputs.kubo_scenario != ''
         env:
+          KUBO_SCENARIO: ${{ steps.release.outputs.kubo_scenario }}
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
           QUARKUS_VERSION: ${{ steps.release.outputs.quarkus_version }}
           QUARKUS_NATIVE_CONTAINER_BUILD: 'true'
           QUARKUS_NATIVE_BUILDER_IMAGE: ${{ steps.native-consumer.outputs.builder_image }}
         run: |
-          bash .github/central-consumer/verify.sh "$RELEASE_VERSION" "$QUARKUS_VERSION" native kubo
+          bash .github/central-consumer/verify.sh "$RELEASE_VERSION" "$QUARKUS_VERSION" native "$KUBO_SCENARIO"
