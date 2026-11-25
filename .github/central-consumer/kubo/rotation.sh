@@ -23,7 +23,20 @@ prepare_rotation() {
 }
 
 verify_rotation() {
-    local certificates=$1 coordination="$work/rotation-client" status attempt
+    local certificates=$1 round rounds=${KUBO_ROTATION_ROUNDS:-1}
+    if [[ ! "$rounds" =~ ^[1-9][0-9]?$ ]]; then
+        printf 'KUBO_ROTATION_ROUNDS must be between 1 and 99.\n' >&2
+        return 1
+    fi
+    for (( round=1; round<=rounds; round++ )); do
+        switch_proxy_certificate "$certificates/rotation" old
+        verify_rotation_round "$certificates" "$work/rotation-client-$round"
+        printf 'Kubo CA rotation passed (%s %d/%d).\n' "$mode" "$round" "$rounds"
+    done
+}
+
+verify_rotation_round() {
+    local certificates=$1 coordination=$2 status attempt
     mkdir -p "$coordination"
     cp -- "$certificates/ca.pem" "$coordination/ca.pem"
     local reload_args=()

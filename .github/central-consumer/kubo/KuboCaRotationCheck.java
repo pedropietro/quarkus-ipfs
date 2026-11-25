@@ -8,7 +8,10 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
+import java.util.HexFormat;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -47,10 +50,15 @@ class KuboCaRotationCheck {
             cid = kubo.addFile(source, false).get(20, TimeUnit.SECONDS);
         }
 
+        byte[] uploadPayload = payload.clone();
+        uploadPayload[0] ^= 1;
+        String expectedDownloadHash = sha256(payload);
+        String expectedUploadHash = sha256(uploadPayload);
+        String uploadedCid;
         var paused = new CountDownLatch(2);
         var resume = new CountDownLatch(1);
         var downloaded = new ByteArrayOutputStream();
-        try (var source = new FilterInputStream(new ByteArrayInputStream(payload)) {
+        try (var source = new FilterInputStream(new ByteArrayInputStream(uploadPayload)) {
             private boolean first = true;
 
             @Override
@@ -95,18 +103,19 @@ class KuboCaRotationCheck {
                 resume.countDown();
             }
 
-            if (!cid.equals(upload.get(20, TimeUnit.SECONDS))
-                    || download.get(20, TimeUnit.SECONDS) != payload.length
-                    || !Arrays.equals(payload, downloaded.toByteArray())) {
-                throw new IllegalStateException("Kubo CA rotation interrupted or corrupted an active transfer");
+            uploadedCid = upload.get(20, TimeUnit.SECONDS);
+            if (download.get(20, TimeUnit.SECONDS) != payload.length
+                    || !expectedDownloadHash.equals(sha256(downloaded.toByteArray()))) {
+                throw new IllegalStateException("Kubo CA rotation corrupted the in-flight download");
             }
         }
         var uploaded = new ByteArrayOutputStream();
-        if (kubo.writeFile(cid, uploaded).get(20, TimeUnit.SECONDS) != payload.length
-                || !Arrays.equals(payload, uploaded.toByteArray())) {
-            throw new IllegalStateException("The upload that spanned Kubo CA rotation returned different content");
+        if (cid.equals(uploadedCid) || kubo.writeFile(uploadedCid, uploaded).get(20, TimeUnit.SECONDS) != uploadPayload.length
+                || !expectedUploadHash.equals(sha256(uploaded.toByteArray()))) {
+            throw new IllegalStateException("Kubo CA rotation corrupted the in-flight upload");
         }
-        System.out.println("Kubo CA rotation preserved the in-flight 4 MiB upload and download byte for byte.");
+        System.out.printf("Kubo CA rotation preserved the 4 MiB upload (SHA-256 %s) and download (SHA-256 %s).%n",
+                expectedUploadHash, expectedDownloadHash);
 
         signal("new-accepted");
         if (automatic) {
@@ -166,6 +175,10 @@ class KuboCaRotationCheck {
             throw new IllegalStateException("Expected TLS rejection of " + description, failure);
         }
         throw new IllegalStateException("Kubo accepted " + description);
+    }
+
+    private static String sha256(byte[] data) throws NoSuchAlgorithmException {
+        return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(data));
     }
 
     private static void pause(CountDownLatch paused, CountDownLatch resume) throws IOException {

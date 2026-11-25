@@ -518,13 +518,15 @@ public class KuboClient {
         return written;
     }
 
-    /** Pull one buffer at a time from Vert.x while the caller's I/O runs on a worker. */
+    /** Use a bounded read window while the caller's I/O runs on a worker. */
     private static final class StreamResponse {
+        private static final int READ_WINDOW = 16;
+
         private record Part(Buffer buffer, Throwable failure) {
         }
 
         private final HttpClientResponse http;
-        private final ArrayBlockingQueue<Part> incoming = new ArrayBlockingQueue<>(2);
+        private final ArrayBlockingQueue<Part> incoming = new ArrayBlockingQueue<>(READ_WINDOW + 1);
         private final AtomicBoolean finished = new AtomicBoolean();
 
         private StreamResponse(HttpClientResponse http) {
@@ -533,6 +535,8 @@ public class KuboClient {
             http.handler(buffer -> incoming.add(new Part(buffer, null)));
             http.exceptionHandler(error -> finish(error));
             http.endHandler(ignored -> finish(null));
+            // Allow HTTP framing to advance while the worker consumes an already delivered buffer.
+            http.fetch(READ_WINDOW);
         }
 
         private void finish(Throwable error) {
@@ -542,10 +546,12 @@ public class KuboClient {
         }
 
         private Buffer next() throws IOException, InterruptedException {
-            http.fetch(1);
             var part = incoming.take();
             if (part.failure() != null) {
                 throw new IOException("Kubo response ended prematurely", part.failure());
+            }
+            if (part.buffer() != null && !finished.get()) {
+                http.fetch(1);
             }
             return part.buffer();
         }
