@@ -34,9 +34,11 @@ case "$scenario" in
     *) printf 'Unknown consumer scenario: %s\n' "$scenario" >&2; exit 1 ;;
 esac
 rotation_mode=none
+directory_listing=false
 if [[ "$scenario" == kubo-https ]]; then
     if [[ "$reactor" == true || "$ipfs_version" != 0.[0-9].* ]]; then
         rotation_mode=automatic
+        directory_listing=true
     elif [[ "$ipfs_version" == 0.9.* ]]; then
         rotation_mode=manual
     fi
@@ -81,6 +83,9 @@ elif [[ "$scenario" != block ]]; then
         if [[ "$metrics" == disabled ]]; then
             echo quarkus.ipfs.metrics-enabled=false >> "$work/src/main/resources/application.properties"
         fi
+    fi
+    if [[ "$directory_listing" == true ]]; then
+        cp -- "$fixture/kubo/KuboDirectoryCheck.java" "$work/src/main/java/org/acme/"
     fi
     if [[ "$rotation_mode" == automatic ]]; then
         package_args+=(-Pkubo-readiness)
@@ -158,7 +163,7 @@ docker run -d --name "$kubo" --network "$network" --entrypoint sh "$kubo_image" 
         ipfs init --profile=server
         ipfs bootstrap rm --all
         ipfs config Addresses.API /ip4/0.0.0.0/tcp/5001
-        ipfs config --json API.Authorizations "{\"test\":{\"AuthSecret\":\"bearer:central-consumer-test\",\"AllowedPaths\":[\"/api/v0/add\",\"/api/v0/cat\",\"/api/v0/block/get\",\"/api/v0/version\"]}}"
+        ipfs config --json API.Authorizations "{\"test\":{\"AuthSecret\":\"bearer:central-consumer-test\",\"AllowedPaths\":[\"/api/v0/add\",\"/api/v0/cat\",\"/api/v0/block/get\",\"/api/v0/version\",\"/api/v0/files/stat\",\"/api/v0/ls\"]}}"
     fi
     exec ipfs daemon --offline
 ' >/dev/null
