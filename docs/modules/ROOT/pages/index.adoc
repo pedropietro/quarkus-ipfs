@@ -69,6 +69,20 @@ quarkus.ipfs.kubo.timeout=30s
 ----
 
 Supply `quarkus.ipfs.kubo.bearer-token` through a secret-backed configuration source when Kubo requires bearer authentication.
+
+For a Kubo API behind an HTTPS reverse proxy with a private CA, select a named Quarkus TLS trust store.
+The proxy can mount the RPC under a path prefix.
+
+[source,properties]
+----
+quarkus.ipfs.kubo.api-url=https://kubo.example.com/ipfs-rpc
+quarkus.ipfs.kubo.tls-configuration-name=kubo
+quarkus.tls.kubo.trust-store.pem.certs=/etc/certs/kubo-ca.pem
+----
+
+The trust store applies to block reads and file transfers. The client verifies the proxy hostname and does not follow redirects.
+Configure the proxy to forward HTTP trailers so the client receives errors such as `X-Stream-Error`.
+The client loads the configured trust store at initialization.
 Use HTTPS for a remote RPC server that carries credentials.
 The base URL may include a reverse-proxy prefix.
 

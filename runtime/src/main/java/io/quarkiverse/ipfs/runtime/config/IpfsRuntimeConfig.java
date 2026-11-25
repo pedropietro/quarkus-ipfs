@@ -83,5 +83,8 @@ public interface IpfsRuntimeConfig {
 
         /** Optional bearer token for the Kubo RPC API. */
         Optional<String> bearerToken();
+
+        /** Optional named Quarkus TLS configuration that supplies the trust store for HTTPS. */
+        Optional<String> tlsConfigurationName();
     }
 }

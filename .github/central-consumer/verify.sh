@@ -7,7 +7,7 @@ root=$(cd -- "$fixture/../.." && pwd -P)
 reactor=false
 if [[ "${1:-}" == --reactor ]]; then
     reactor=true
-    mode=${2:?Usage: verify.sh --reactor jvm|native [block|kubo]}
+    mode=${2:?Usage: verify.sh --reactor jvm|native [block|kubo|kubo-https]}
     scenario=${3:-kubo}
     read -r ipfs_version quarkus_version < <(python3 - "$root/pom.xml" <<'PY'
 import sys
@@ -18,15 +18,15 @@ print(pom.findtext("{*}version"), pom.findtext("{*}properties/{*}quarkus.version
 PY
     )
 else
-    ipfs_version=${1:?Usage: verify.sh ipfs-version quarkus-version [jvm|native] [block|kubo]}
+    ipfs_version=${1:?Usage: verify.sh ipfs-version quarkus-version [jvm|native] [block|kubo|kubo-https]}
     quarkus_version=${2:?Pass the Quarkus version}
     mode=${3:-jvm}
     scenario=${4:-block}
 fi
 
 case "$scenario" in
-    block|kubo) ;;
-    *) printf 'Expected block or kubo, got %s\n' "$scenario" >&2; exit 1 ;;
+    block|kubo|kubo-https) ;;
+    *) printf 'Expected block, kubo or kubo-https, got %s\n' "$scenario" >&2; exit 1 ;;
 esac
 package_args=()
 case "$mode" in
@@ -45,17 +45,23 @@ network=
 cleanup() {
     local status=$?
     if [[ -n "$network" ]]; then
-        cleanup_network "$status" "$network" "$app" "$kubo"
+        cleanup_network "$status" "$network" "$app" "$kubo" ${proxy:+"$proxy"}
     fi
     rm -rf -- "$work"
 }
 trap cleanup EXIT
 
 cp -- "$fixture/pom.xml" "$work/"
-if [[ "$scenario" == kubo ]]; then
+if [[ "$scenario" != block ]]; then
     mkdir -p "$work/src/main/java/org/acme" "$work/src/main/resources"
     cp -- "$fixture/kubo/KuboSmokeTest.java" "$work/src/main/java/org/acme/"
     cp -- "$fixture/kubo/application.properties" "$work/src/main/resources/"
+    if [[ "$scenario" == kubo-https ]]; then
+        cat >> "$work/src/main/resources/application.properties" <<'PROPERTIES'
+quarkus.ipfs.kubo.tls-configuration-name=kubo
+quarkus.tls.kubo.trust-store.pem.certs=${KUBO_TEST_CA}
+PROPERTIES
+    fi
 else
     cp -R -- "$fixture/src" "$work/"
 fi
@@ -118,10 +124,15 @@ docker run -d --name "$kubo" --network "$network" --entrypoint sh "$kubo_image" 
     ipfs init --profile=server
     ipfs bootstrap rm --all
     ipfs config Addresses.API /ip4/0.0.0.0/tcp/5001
-    ipfs config --json API.Authorizations "{\"test\":{\"AuthSecret\":\"bearer:central-consumer-test\",\"AllowedPaths\":[\"/api/v0/add\",\"/api/v0/cat\"]}}"
+    ipfs config --json API.Authorizations "{\"test\":{\"AuthSecret\":\"bearer:central-consumer-test\",\"AllowedPaths\":[\"/api/v0/add\",\"/api/v0/cat\",\"/api/v0/block/get\"]}}"
     exec ipfs daemon --offline
 ' >/dev/null
 await_ready kubo_ready "$kubo"
+if [[ "$scenario" == kubo-https ]]; then
+    source "$fixture/kubo/https.sh"
+    verify_https
+    exit
+fi
 start_app "$app" "$mode" "$artifact" --network "$network" \
     -e "QUARKUS_IPFS_KUBO_API_URL=http://$kubo:5001" \
     -e QUARKUS_IPFS_KUBO_BEARER_TOKEN=central-consumer-test
