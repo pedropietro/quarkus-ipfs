@@ -43,6 +43,9 @@ public class KuboSmokeTest implements QuarkusApplication {
     @Inject
     Instance<MetricsCheck> metrics;
 
+    @Inject
+    KuboCaRotationCheck rotation;
+
     interface MetricsCheck {
         void verify(String scenario, boolean enabled);
     }
@@ -55,6 +58,10 @@ public class KuboSmokeTest implements QuarkusApplication {
         // The configured swarm port must be available throughout the Kubo-only test.
         try (var listener = new ServerSocket(4001, 1, InetAddress.getByName("127.0.0.1"))) {
             String scenario = System.getenv("KUBO_TEST_EXPECT");
+            if ("rotation".equals(scenario)) {
+                rotation.verify();
+                return 0;
+            }
             if ("streaming".equals(scenario)) {
                 long heap = Runtime.getRuntime().maxMemory();
                 if (heap > 64 * MIB) {
@@ -204,7 +211,7 @@ public class KuboSmokeTest implements QuarkusApplication {
         throw new IllegalStateException("Kubo succeeded with " + scenario);
     }
 
-    private static boolean isTlsFailure(Throwable cause) {
+    static boolean isTlsFailure(Throwable cause) {
         for (Throwable current = cause; current != null; current = current.getCause()) {
             if (current instanceof SSLException) {
                 return true;

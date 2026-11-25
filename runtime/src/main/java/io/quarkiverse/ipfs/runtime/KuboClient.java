@@ -14,9 +14,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpRequest.BodyPublishers;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.HashSet;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CancellationException;
@@ -29,14 +31,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import javax.net.ssl.SSLContext;
 
 import jakarta.annotation.PreDestroy;
+import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
 
 import org.eclipse.microprofile.context.ManagedExecutor;
+import org.jboss.logging.Logger;
 
 import com.google.gson.JsonParser;
 
 import io.ipfs.cid.Cid;
 import io.quarkiverse.ipfs.runtime.config.IpfsRuntimeConfig;
+import io.quarkus.tls.CertificateUpdatedEvent;
+import io.quarkus.tls.TlsConfiguration;
 import io.quarkus.tls.TlsConfigurationRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -50,9 +56,12 @@ import io.vertx.core.http.RequestOptions;
 /** CDI client for reading raw blocks and transferring UnixFS files through a configured Kubo HTTP RPC server. */
 public class KuboClient {
     private static final int MAX_ADD_RESPONSE_BYTES = 4096;
+    private static final Logger LOG = Logger.getLogger(KuboClient.class);
 
-    private final HttpClient http;
-    private final io.vertx.core.http.HttpClient streamHttp;
+    private final Vertx vertx;
+    private final Optional<String> tlsName;
+    private final Set<Transport> transports = new HashSet<>();
+    private Transport currentTransport;
     private final ManagedExecutor executor;
     private final KuboMetrics metrics;
     private final String rpcBase;
@@ -62,6 +71,7 @@ public class KuboClient {
     @Inject
     KuboClient(IpfsRuntimeConfig config, ManagedExecutor executor, Vertx vertx, TlsConfigurationRegistry tlsRegistry,
             KuboMetrics metrics) {
+        this.vertx = vertx;
         this.executor = executor;
         this.metrics = metrics;
         var kubo = config.kubo();
@@ -81,16 +91,23 @@ public class KuboClient {
             throw new IllegalArgumentException("quarkus.ipfs.kubo.bearer-token has invalid characters");
         }
         rpcBase = url.toASCIIString().replaceFirst("/+$", "") + "/api/v0/";
+        tlsName = kubo.tlsConfigurationName();
+        if (tlsName.isPresent() && !"https".equalsIgnoreCase(url.getScheme())) {
+            throw new IllegalArgumentException("quarkus.ipfs.kubo.tls-configuration-name requires an HTTPS API URL");
+        }
+        var tls = tlsName.map(name -> tlsRegistry.get(name)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown Kubo TLS configuration: " + name)));
+        currentTransport = createTransport(tls);
+        transports.add(currentTransport);
+    }
+
+    private Transport createTransport(Optional<TlsConfiguration> configuration) {
         var blocks = HttpClient.newBuilder().connectTimeout(timeout).followRedirects(HttpClient.Redirect.NEVER);
         var streams = new HttpClientOptions()
                 .setConnectTimeout((int) Math.clamp(timeout.toMillis(), 1, Integer.MAX_VALUE))
                 .setVerifyHost(true);
-        kubo.tlsConfigurationName().ifPresent(name -> {
-            if (!"https".equalsIgnoreCase(url.getScheme())) {
-                throw new IllegalArgumentException("quarkus.ipfs.kubo.tls-configuration-name requires an HTTPS API URL");
-            }
-            var tls = tlsRegistry.get(name)
-                    .orElseThrow(() -> new IllegalArgumentException("Unknown Kubo TLS configuration: " + name));
+        configuration.ifPresent(tls -> {
+            String name = tlsName.orElseThrow();
             if (tls.isTrustAll() || !"HTTPS".equalsIgnoreCase(tls.getHostnameVerificationAlgorithm().orElse("HTTPS"))) {
                 throw new IllegalArgumentException("Kubo TLS requires a trusted certificate and HTTPS hostname verification");
             }
@@ -107,8 +124,67 @@ public class KuboClient {
                 throw new IllegalArgumentException("Cannot configure the Kubo TLS trust store: " + name, failure);
             }
         });
-        http = blocks.build();
-        streamHttp = vertx.createHttpClient(streams);
+        var http = blocks.build();
+        try {
+            return new Transport(http, vertx.createHttpClient(streams));
+        } catch (RuntimeException failure) {
+            http.shutdownNow();
+            throw failure;
+        }
+    }
+
+    synchronized void certificateUpdated(@Observes CertificateUpdatedEvent event) {
+        if (currentTransport == null || tlsName.filter(event.name()::equals).isEmpty()) {
+            return;
+        }
+
+        Transport replacement;
+        try {
+            replacement = createTransport(Optional.of(event.tlsConfiguration()));
+        } catch (RuntimeException failure) {
+            LOG.warn("Could not apply the updated Kubo TLS trust store. Keeping the previous configuration.", failure);
+            return;
+        }
+        var previous = currentTransport;
+        currentTransport = replacement;
+        transports.add(replacement);
+        closeIfRetired(previous);
+    }
+
+    private synchronized Transport acquireTransport() {
+        if (currentTransport == null) {
+            throw new IllegalStateException("Kubo client is closed");
+        }
+        currentTransport.active++;
+        return currentTransport;
+    }
+
+    private synchronized void releaseTransport(Transport transport) {
+        transport.active--;
+        closeIfRetired(transport);
+    }
+
+    // Rotation stops assigning requests to the previous pool immediately. Close it after its last request finishes.
+    private void closeIfRetired(Transport transport) {
+        if (transport != currentTransport && transport.active == 0 && transports.remove(transport)) {
+            transport.close();
+        }
+    }
+
+    private static final class Transport {
+        private final HttpClient blocks;
+        private final io.vertx.core.http.HttpClient streams;
+        private int active;
+
+        private Transport(HttpClient blocks, io.vertx.core.http.HttpClient streams) {
+            this.blocks = blocks;
+            this.streams = streams;
+        }
+
+        private void close() {
+            streams.close();
+            blocks.shutdownNow();
+        }
     }
 
     /**
@@ -127,12 +203,20 @@ public class KuboClient {
         } catch (RuntimeException failure) {
             return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid IPFS CID", failure));
         }
-        var response = http.sendAsync(request("block/get", cid), HttpResponse.BodyHandlers.ofByteArray());
+        var transport = acquireTransport();
+        CompletableFuture<HttpResponse<byte[]>> response;
+        try {
+            response = transport.blocks.sendAsync(request("block/get", cid), HttpResponse.BodyHandlers.ofByteArray());
+        } catch (RuntimeException failure) {
+            releaseTransport(transport);
+            throw failure;
+        }
         var result = response.thenApply(reply -> readBlock(cid, reply)).orTimeout(timeout.toNanos(), TimeUnit.NANOSECONDS);
         result.whenComplete((value, failure) -> {
             if (failure instanceof TimeoutException || result.isCancelled()) {
                 response.cancel(true);
             }
+            releaseTransport(transport);
         });
         return result;
     }
@@ -190,9 +274,17 @@ public class KuboClient {
                 var options = new RequestOptions().setAbsoluteURI(rpcBase + path)
                         .setMethod(HttpMethod.POST).setFollowRedirects(false);
                 bearerToken.ifPresent(token -> options.addHeader("Authorization", "Bearer " + token));
-                var request = await(streamHttp.request(options).onSuccess(opened::complete));
+                T value;
                 checkActive(result);
-                result.complete(action.run(request, result));
+                var transport = acquireTransport();
+                try {
+                    var request = await(transport.streams.request(options).onSuccess(opened::complete));
+                    checkActive(result);
+                    value = action.run(request, result);
+                } finally {
+                    releaseTransport(transport);
+                }
+                result.complete(value);
             } catch (InterruptedException failure) {
                 Thread.currentThread().interrupt();
                 result.completeExceptionally(failure);
@@ -386,9 +478,10 @@ public class KuboClient {
     }
 
     @PreDestroy
-    void shutdown() {
-        streamHttp.close();
-        http.shutdownNow();
+    synchronized void shutdown() {
+        currentTransport = null;
+        transports.forEach(Transport::close);
+        transports.clear();
     }
 
     static final class StreamException extends IOException {
