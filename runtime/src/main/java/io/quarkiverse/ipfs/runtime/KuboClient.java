@@ -26,6 +26,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import javax.net.ssl.SSLContext;
+
 import jakarta.annotation.PreDestroy;
 import jakarta.inject.Inject;
 
@@ -35,6 +37,7 @@ import com.google.gson.JsonParser;
 
 import io.ipfs.cid.Cid;
 import io.quarkiverse.ipfs.runtime.config.IpfsRuntimeConfig;
+import io.quarkus.tls.TlsConfigurationRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
@@ -56,7 +59,7 @@ public class KuboClient {
     private final Optional<String> bearerToken;
 
     @Inject
-    KuboClient(IpfsRuntimeConfig config, ManagedExecutor executor, Vertx vertx) {
+    KuboClient(IpfsRuntimeConfig config, ManagedExecutor executor, Vertx vertx, TlsConfigurationRegistry tlsRegistry) {
         this.executor = executor;
         var kubo = config.kubo();
         URI url = kubo.apiUrl();
@@ -75,9 +78,34 @@ public class KuboClient {
             throw new IllegalArgumentException("quarkus.ipfs.kubo.bearer-token has invalid characters");
         }
         rpcBase = url.toASCIIString().replaceFirst("/+$", "") + "/api/v0/";
-        http = HttpClient.newBuilder().connectTimeout(timeout).followRedirects(HttpClient.Redirect.NEVER).build();
-        streamHttp = vertx.createHttpClient(new HttpClientOptions()
-                .setConnectTimeout((int) Math.clamp(timeout.toMillis(), 1, Integer.MAX_VALUE)));
+        var blocks = HttpClient.newBuilder().connectTimeout(timeout).followRedirects(HttpClient.Redirect.NEVER);
+        var streams = new HttpClientOptions()
+                .setConnectTimeout((int) Math.clamp(timeout.toMillis(), 1, Integer.MAX_VALUE))
+                .setVerifyHost(true);
+        kubo.tlsConfigurationName().ifPresent(name -> {
+            if (!"https".equalsIgnoreCase(url.getScheme())) {
+                throw new IllegalArgumentException("quarkus.ipfs.kubo.tls-configuration-name requires an HTTPS API URL");
+            }
+            var tls = tlsRegistry.get(name)
+                    .orElseThrow(() -> new IllegalArgumentException("Unknown Kubo TLS configuration: " + name));
+            if (tls.isTrustAll() || !"HTTPS".equalsIgnoreCase(tls.getHostnameVerificationAlgorithm().orElse("HTTPS"))) {
+                throw new IllegalArgumentException("Kubo TLS requires a trusted certificate and HTTPS hostname verification");
+            }
+            var trust = tls.getTrustStoreOptions();
+            if (trust == null) {
+                throw new IllegalArgumentException("Kubo TLS configuration requires a trust store: " + name);
+            }
+            try {
+                var context = SSLContext.getInstance("TLS");
+                context.init(null, trust.getTrustManagerFactory(vertx).getTrustManagers(), null);
+                blocks.sslContext(context);
+                streams.setTrustOptions(trust);
+            } catch (Exception failure) {
+                throw new IllegalArgumentException("Cannot configure the Kubo TLS trust store: " + name, failure);
+            }
+        });
+        http = blocks.build();
+        streamHttp = vertx.createHttpClient(streams);
     }
 
     /**

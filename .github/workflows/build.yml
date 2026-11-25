@@ -72,10 +72,10 @@ jobs:
             integration-tests/target/quarkus-app "$RUNNER_TEMP/kubo-logs"
           bash integration-tests/src/test/scripts/unixfs-stream.sh jvm integration-tests/target/quarkus-app
 
-      - name: Verify the Kubo-only consumer (JVM)
+      - name: Verify the Kubo-only consumer over HTTPS (JVM)
         if: matrix.java != '21'
         timeout-minutes: 12
-        run: bash .github/central-consumer/verify.sh --reactor jvm kubo
+        run: bash .github/central-consumer/verify.sh --reactor jvm kubo-https
 
       - name: Upload Kubo JVM logs
         if: always() && matrix.java != '21'
@@ -137,12 +137,12 @@ jobs:
             "${runners[0]}" "$RUNNER_TEMP/kubo-logs"
           bash integration-tests/src/test/scripts/unixfs-stream.sh native "${runners[0]}"
 
-      - name: Verify the Kubo-only consumer (native)
+      - name: Verify the Kubo-only consumer over HTTPS (native)
         timeout-minutes: 15
         env:
           QUARKUS_NATIVE_CONTAINER_BUILD: 'true'
           QUARKUS_NATIVE_BUILDER_IMAGE: ${{ steps.native-build.outputs.builder_image }}
-        run: bash .github/central-consumer/verify.sh --reactor native kubo
+        run: bash .github/central-consumer/verify.sh --reactor native kubo-https
 
       - name: Upload Kubo native logs
         if: always()

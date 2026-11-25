@@ -81,7 +81,7 @@ QUARKUS_NATIVE_BUILDER_IMAGE=quay.io/quarkus/ubi10-quarkus-mandrel-builder-image
   bash .github/central-consumer/verify.sh 0.7.0 4.0.0 native kubo
 ~~~
 
-CI uses `verify.sh --reactor jvm kubo` and `verify.sh --reactor native kubo` to run the same fixture against this checkout's packaged artifacts before publication.
+For releases with named Kubo TLS configuration, the same commands accept the `kubo-https` scenario. It additionally requires OpenSSL and runs a reverse proxy that exercises CA trust, hostname verification, trailers and redirects. CI runs this HTTPS scenario against the checkout's packaged artifacts before publication.
 
 [Manual bundle upload](https://central.sonatype.org/publish/publish-portal-upload/)
 
