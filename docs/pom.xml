@@ -6,7 +6,7 @@
     <parent>
         <groupId>io.github.pedropietro</groupId>
         <artifactId>quarkus-ipfs-parent</artifactId>
-        <version>0.8.0</version>
+        <version>0.9.0</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
