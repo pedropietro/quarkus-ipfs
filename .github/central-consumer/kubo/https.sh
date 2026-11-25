@@ -33,6 +33,9 @@ verify_https() {
     await_ready docker exec "$proxy" wget -q -O /dev/null http://127.0.0.1:8080/ready
 
     run_https_consumer success kubo-proxy rpc ca.pem
+    if [[ "$directory_policy" == true ]]; then
+        verify_directory_policy
+    fi
     if [[ "$scenario" == kubo-https ]]; then
         run_https_consumer unauthenticated kubo-proxy rpc ca.pem ''
         APP_MAX_HEAP=64m run_https_consumer streaming kubo-proxy rpc ca.pem
@@ -58,6 +61,20 @@ verify_https() {
         return 1
     fi
     echo 'Kubo HTTPS proxy checks passed. The redirect target received no requests.'
+}
+
+verify_directory_policy() {
+    local status
+    start_app "$app" "$mode" "$artifact" --network "$network" \
+        --mount "type=bind,src=$work/https/ca.pem,dst=/fixture-ca.pem,readonly" \
+        -e KUBO_TEST_CA=/fixture-ca.pem -e KUBO_TEST_EXPECT=directory-policy -e "KUBO_EXPECT_METRICS=$metrics" \
+        -e QUARKUS_IPFS_KUBO_TLS_CONFIGURATION_NAME= -e QUARKUS_IPFS_KUBO_TIMEOUT=4s \
+        -e QUARKUS_IPFS_KUBO_API_URL=http://127.0.0.1:19080 \
+        -e QUARKUS_IPFS_KUBO_BEARER_TOKEN=central-consumer-test
+    status=$(timeout --kill-after=10s 60s docker wait "$app")
+    docker logs "$app"
+    test "$status" = 0
+    docker rm -v "$app" >/dev/null
 }
 
 run_https_consumer() {

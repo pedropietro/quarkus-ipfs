@@ -49,6 +49,13 @@ public class KuboSmokeTest implements QuarkusApplication {
     @Inject
     Instance<DirectoryCheck> directories;
 
+    @Inject
+    Instance<DirectoryPolicyCheck> directoryPolicy;
+
+    interface DirectoryPolicyCheck {
+        void verify() throws Exception;
+    }
+
     interface DirectoryCheck {
         void verify(String scenario) throws Exception;
     }
@@ -65,6 +72,11 @@ public class KuboSmokeTest implements QuarkusApplication {
         // The configured swarm port must be available throughout the Kubo-only test.
         try (var listener = new ServerSocket(4001, 1, InetAddress.getByName("127.0.0.1"))) {
             String scenario = System.getenv("KUBO_TEST_EXPECT");
+            if ("directory-policy".equals(scenario)) {
+                directoryPolicy.get().verify();
+                verifyMetrics(scenario);
+                return 0;
+            }
             if (scenario != null && scenario.startsWith("directory")) {
                 directories.get().verify(scenario);
                 return 0;
