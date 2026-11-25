@@ -54,13 +54,16 @@ public class KuboClient {
     private final HttpClient http;
     private final io.vertx.core.http.HttpClient streamHttp;
     private final ManagedExecutor executor;
+    private final KuboMetrics metrics;
     private final String rpcBase;
     private final Duration timeout;
     private final Optional<String> bearerToken;
 
     @Inject
-    KuboClient(IpfsRuntimeConfig config, ManagedExecutor executor, Vertx vertx, TlsConfigurationRegistry tlsRegistry) {
+    KuboClient(IpfsRuntimeConfig config, ManagedExecutor executor, Vertx vertx, TlsConfigurationRegistry tlsRegistry,
+            KuboMetrics metrics) {
         this.executor = executor;
+        this.metrics = metrics;
         var kubo = config.kubo();
         URI url = kubo.apiUrl();
         if (!("http".equalsIgnoreCase(url.getScheme()) || "https".equalsIgnoreCase(url.getScheme()))
@@ -114,6 +117,10 @@ public class KuboClient {
      * and other HTTP errors with {@link KuboRequestException}.
      */
     public CompletableFuture<byte[]> getBlock(String cidString) {
+        return metrics.record(KuboMetrics.Operation.BLOCK_GET, metrics.start(), fetchBlock(cidString));
+    }
+
+    private CompletableFuture<byte[]> fetchBlock(String cidString) {
         Cid cid;
         try {
             cid = Cid.decode(cidString);
@@ -139,6 +146,10 @@ public class KuboClient {
      * I/O errors, incomplete responses and Kubo stream errors fail with {@link UncheckedIOException}.
      */
     public CompletableFuture<Long> writeFile(String cidString, OutputStream output) {
+        return metrics.record(KuboMetrics.Operation.CAT, metrics.start(), streamFile(cidString, output));
+    }
+
+    private CompletableFuture<Long> streamFile(String cidString, OutputStream output) {
         Objects.requireNonNull(output, "output");
         Cid cid;
         try {
@@ -161,8 +172,9 @@ public class KuboClient {
      */
     public CompletableFuture<String> addFile(InputStream input, boolean pin) {
         Objects.requireNonNull(input, "input");
-        return transfer("add?cid-version=1&pin=" + pin + "&progress=false&enc=json",
-                (request, result) -> uploadFile(input, request, result));
+        return metrics.record(KuboMetrics.Operation.ADD, metrics.start(),
+                transfer("add?cid-version=1&pin=" + pin + "&progress=false&enc=json",
+                        (request, result) -> uploadFile(input, request, result)));
     }
 
     @FunctionalInterface
@@ -358,7 +370,7 @@ public class KuboClient {
         private void checkTrailer(String operation) throws IOException {
             if (http.trailers().contains("X-Stream-Error")) {
                 // The remote message may contain sensitive or application-specific data.
-                throw new IOException("Kubo " + operation + " reported an error in X-Stream-Error");
+                throw new StreamException(operation);
             }
         }
     }
@@ -377,6 +389,12 @@ public class KuboClient {
     void shutdown() {
         streamHttp.close();
         http.shutdownNow();
+    }
+
+    static final class StreamException extends IOException {
+        private StreamException(String operation) {
+            super("Kubo " + operation + " reported an error in X-Stream-Error");
+        }
     }
 
     /** A Kubo RPC server returned an unsuccessful HTTP response. */

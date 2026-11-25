@@ -77,6 +77,13 @@ jobs:
         timeout-minutes: 12
         run: bash .github/central-consumer/verify.sh --reactor jvm kubo-https
 
+      - name: Verify optional Kubo metrics (JVM)
+        if: matrix.java != '21'
+        timeout-minutes: 12
+        run: |
+          bash .github/central-consumer/verify.sh --reactor jvm kubo-metrics
+          bash .github/central-consumer/verify.sh --reactor jvm kubo-metrics-disabled
+
       - name: Upload Kubo JVM logs
         if: always() && matrix.java != '21'
         uses: actions/upload-artifact@v7.0.2
@@ -143,6 +150,15 @@ jobs:
           QUARKUS_NATIVE_CONTAINER_BUILD: 'true'
           QUARKUS_NATIVE_BUILDER_IMAGE: ${{ steps.native-build.outputs.builder_image }}
         run: bash .github/central-consumer/verify.sh --reactor native kubo-https
+
+      - name: Verify optional Kubo metrics (native)
+        timeout-minutes: 20
+        env:
+          QUARKUS_NATIVE_CONTAINER_BUILD: 'true'
+          QUARKUS_NATIVE_BUILDER_IMAGE: ${{ steps.native-build.outputs.builder_image }}
+        run: |
+          bash .github/central-consumer/verify.sh --reactor native kubo-metrics
+          bash .github/central-consumer/verify.sh --reactor native kubo-metrics-disabled
 
       - name: Upload Kubo native logs
         if: always()

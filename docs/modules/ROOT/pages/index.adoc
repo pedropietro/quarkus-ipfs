@@ -50,11 +50,17 @@ Set `quarkus.ipfs.metrics-enabled=false` at build time to turn off IPFS meters w
 |Meter |Type |Measurement
 |`ipfs.peers.connected` |Gauge |Distinct peers currently connected to the embedded node.
 |`ipfs.operations` |Counter |Completed `block_read`, `block_write`, `ipns_publish`, and `ipns_resolve` calls, tagged with the `operation` and the `outcome` (`success` or `failure`).
+|`ipfs.kubo.operation.duration` |Timer |Count and total duration of completed Kubo client calls, including cancellations.
 |===
 
 Block counters cover `BlockService.get` and `put`. A block read counts once, including when it fetches the block from another peer.
 IPNS counters cover `IpnsService.publish` and `resolve`. A publication that succeeds locally with zero DHT acknowledgements counts as a success.
-Prometheus exposes these meters as `ipfs_peers_connected` and `ipfs_operations_total`.
+Prometheus exposes these embedded-node meters as `ipfs_peers_connected` and `ipfs_operations_total`.
+
+The Kubo timer is also available when the embedded node is disabled.
+Its `operation` tag is `block_get`, `cat`, or `add`.
+Its `outcome` tag is `success`, `http_error`, `timeout`, `cancelled`, `stream_error` (late `X-Stream-Error` trailer), or `failure` (for example, a TLS or local I/O error).
+Prometheus exposes the count and cumulative duration as `ipfs_kubo_operation_duration_seconds_count` and `ipfs_kubo_operation_duration_seconds_sum`.
 
 == Read blocks and transfer UnixFS files through an external Kubo node
 

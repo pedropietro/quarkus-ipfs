@@ -23,10 +23,16 @@ verify_https() {
     await_ready docker exec "$proxy" wget -q -O /dev/null http://127.0.0.1:8080/ready
 
     run_https_consumer success kubo-proxy rpc ca.pem
+    if [[ "$metrics" == disabled ]]; then
+        return
+    fi
     run_https_consumer 'untrusted CA' kubo-proxy rpc untrusted.pem
     run_https_consumer 'hostname mismatch' wrong-host rpc ca.pem
     run_https_consumer trailers kubo-proxy late ca.pem
     run_https_consumer redirect kubo-proxy redirect ca.pem
+    if [[ "$metrics" == enabled ]]; then
+        run_https_consumer interrupted kubo-proxy stall ca.pem
+    fi
     if docker logs "$proxy" 2>&1 | grep -F '/capture'; then
         printf 'The redirect target received a request.\n' >&2
         return 1
@@ -36,9 +42,14 @@ verify_https() {
 
 run_https_consumer() {
     local expected=$1 host=$2 prefix=$3 ca=$4 status
+    local timeout_args=()
+    if [[ "$expected" == interrupted ]]; then
+        timeout_args=(-e QUARKUS_IPFS_KUBO_TIMEOUT=2s)
+    fi
     start_app "$app" "$mode" "$artifact" --network "$network" \
         --mount "type=bind,src=$work/https/$ca,dst=/fixture-ca.pem,readonly" \
         -e KUBO_TEST_CA=/fixture-ca.pem -e "KUBO_TEST_EXPECT=$expected" \
+        -e "KUBO_EXPECT_METRICS=$metrics" "${timeout_args[@]}" \
         -e "QUARKUS_IPFS_KUBO_API_URL=https://$host:8443/$prefix" \
         -e QUARKUS_IPFS_KUBO_BEARER_TOKEN=central-consumer-test
     status=$(timeout --kill-after=10s 90s docker wait "$app")

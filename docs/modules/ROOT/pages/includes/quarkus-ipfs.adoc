@@ -78,7 +78,7 @@ endif::add-copy-button-to-config-props[]
 
 [.description]
 --
-Whether to collect IPFS metrics when the node is enabled and the application has Micrometer.
+Whether to collect metrics for the enabled IPFS node or Kubo client when the application has Micrometer.
 
 
 ifdef::add-copy-button-to-env-var[]

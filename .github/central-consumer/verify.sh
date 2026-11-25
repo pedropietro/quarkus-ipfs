@@ -7,7 +7,7 @@ root=$(cd -- "$fixture/../.." && pwd -P)
 reactor=false
 if [[ "${1:-}" == --reactor ]]; then
     reactor=true
-    mode=${2:?Usage: verify.sh --reactor jvm|native [block|kubo|kubo-https]}
+    mode=${2:?Usage: verify.sh --reactor jvm|native [block|kubo|kubo-https|kubo-metrics|kubo-metrics-disabled]}
     scenario=${3:-kubo}
     read -r ipfs_version quarkus_version < <(python3 - "$root/pom.xml" <<'PY'
 import sys
@@ -18,15 +18,18 @@ print(pom.findtext("{*}version"), pom.findtext("{*}properties/{*}quarkus.version
 PY
     )
 else
-    ipfs_version=${1:?Usage: verify.sh ipfs-version quarkus-version [jvm|native] [block|kubo|kubo-https]}
+    ipfs_version=${1:?Usage: verify.sh ipfs-version quarkus-version [jvm|native] [block|kubo|kubo-https|kubo-metrics|kubo-metrics-disabled]}
     quarkus_version=${2:?Pass the Quarkus version}
     mode=${3:-jvm}
     scenario=${4:-block}
 fi
 
+metrics=none
 case "$scenario" in
     block|kubo|kubo-https) ;;
-    *) printf 'Expected block, kubo or kubo-https, got %s\n' "$scenario" >&2; exit 1 ;;
+    kubo-metrics) metrics=enabled ;;
+    kubo-metrics-disabled) metrics=disabled ;;
+    *) printf 'Unknown consumer scenario: %s\n' "$scenario" >&2; exit 1 ;;
 esac
 package_args=()
 case "$mode" in
@@ -56,7 +59,14 @@ if [[ "$scenario" != block ]]; then
     mkdir -p "$work/src/main/java/org/acme" "$work/src/main/resources"
     cp -- "$fixture/kubo/KuboSmokeTest.java" "$work/src/main/java/org/acme/"
     cp -- "$fixture/kubo/application.properties" "$work/src/main/resources/"
-    if [[ "$scenario" == kubo-https ]]; then
+    if [[ "$metrics" != none ]]; then
+        package_args+=(-Pkubo-micrometer)
+        cp -- "$fixture/kubo/KuboMetricsCheck.java" "$work/src/main/java/org/acme/"
+        if [[ "$metrics" == disabled ]]; then
+            echo quarkus.ipfs.metrics-enabled=false >> "$work/src/main/resources/application.properties"
+        fi
+    fi
+    if [[ "$scenario" == kubo-https || "$metrics" != none ]]; then
         cat >> "$work/src/main/resources/application.properties" <<'PROPERTIES'
 quarkus.ipfs.kubo.tls-configuration-name=kubo
 quarkus.tls.kubo.trust-store.pem.certs=${KUBO_TEST_CA}
@@ -128,7 +138,7 @@ docker run -d --name "$kubo" --network "$network" --entrypoint sh "$kubo_image" 
     exec ipfs daemon --offline
 ' >/dev/null
 await_ready kubo_ready "$kubo"
-if [[ "$scenario" == kubo-https ]]; then
+if [[ "$scenario" == kubo-https || "$metrics" != none ]]; then
     source "$fixture/kubo/https.sh"
     verify_https
     exit
