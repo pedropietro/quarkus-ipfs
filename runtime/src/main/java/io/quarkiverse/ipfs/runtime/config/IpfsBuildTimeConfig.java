@@ -33,7 +33,7 @@ public interface IpfsBuildTimeConfig {
     boolean healthEnabled();
 
     /**
-     * Whether to collect IPFS metrics when the node is enabled and the application has Micrometer.
+     * Whether to collect metrics for the enabled IPFS node or Kubo client when the application has Micrometer.
      */
     @WithDefault("true")
     boolean metricsEnabled();

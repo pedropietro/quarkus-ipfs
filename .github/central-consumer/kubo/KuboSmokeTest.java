@@ -7,12 +7,15 @@ import java.io.UncheckedIOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.util.Arrays;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import javax.net.ssl.SSLException;
 
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 
 import org.peergos.EmbeddedIpfs;
@@ -29,6 +32,13 @@ public class KuboSmokeTest implements QuarkusApplication {
     @Inject
     KuboClient kubo;
 
+    @Inject
+    Instance<MetricsCheck> metrics;
+
+    interface MetricsCheck {
+        void verify(String scenario, boolean enabled);
+    }
+
     @Override
     public int run(String... args) throws Exception {
         if (Arc.container().instance(EmbeddedIpfs.class).isAvailable()) {
@@ -39,7 +49,12 @@ public class KuboSmokeTest implements QuarkusApplication {
             byte[] payload = { 'I', 'P', 'F', 'S', 0, (byte) 0xff, '\n' };
             String scenario = System.getenv("KUBO_TEST_EXPECT");
             if (scenario != null && !"success".equals(scenario)) {
-                verifyFailure(scenario, payload);
+                if ("interrupted".equals(scenario)) {
+                    verifyInterrupted();
+                } else {
+                    verifyFailure(scenario, payload);
+                }
+                verifyMetrics(scenario);
                 return 0;
             }
 
@@ -62,11 +77,43 @@ public class KuboSmokeTest implements QuarkusApplication {
                 throw new IllegalStateException("Kubo returned different raw block bytes for CID " + cid);
             }
 
+            verifyMetrics(scenario);
             System.out.printf("Authenticated Kubo consumer imported and read %d bytes by CID %s. "
                     + "Embedded node absent and swarm port %d available.%n", bytes, cid, listener.getLocalPort());
             return 0;
         }
     }
+
+    private void verifyMetrics(String scenario) {
+        String mode = System.getenv("KUBO_EXPECT_METRICS");
+        if (mode == null) {
+            return;
+        }
+        boolean hasMicrometer = !"none".equals(mode);
+        if (metrics.isResolvable() != hasMicrometer) {
+            throw new IllegalStateException("Unexpected Micrometer checker for " + mode);
+        }
+        if (hasMicrometer) {
+            metrics.get().verify(scenario, "enabled".equals(mode));
+        } else {
+            System.out.println("Kubo consumer verified without Micrometer.");
+        }
+    }
+
+    private void verifyInterrupted() throws Exception {
+        assertFailure("timeout", kubo.writeFile(EXPECTED_CID, OutputStream.nullOutputStream()));
+        var cancelled = kubo.writeFile(EXPECTED_CID, OutputStream.nullOutputStream());
+        if (!cancelled.cancel(true)) {
+            throw new IllegalStateException("Kubo transfer did not cancel");
+        }
+        try {
+            cancelled.join();
+            throw new IllegalStateException("Cancelled Kubo transfer succeeded");
+        } catch (CancellationException expected) {
+            System.out.println("Kubo HTTPS check verified timeout and cancellation.");
+        }
+    }
+
     private void verifyFailure(String scenario, byte[] payload) throws Exception {
         try (var input = new ByteArrayInputStream(payload)) {
             assertFailure(scenario, kubo.addFile(input, false));
@@ -84,6 +131,7 @@ public class KuboSmokeTest implements QuarkusApplication {
         } catch (ExecutionException failure) {
             Throwable cause = failure.getCause();
             boolean expected = switch (scenario) {
+                case "timeout" -> cause instanceof TimeoutException;
                 case "redirect" -> cause instanceof KuboClient.KuboRequestException error && error.statusCode() == 307;
                 case "trailers" -> cause instanceof UncheckedIOException error
                         && error.getCause().getMessage().contains("X-Stream-Error");

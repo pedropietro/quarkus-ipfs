@@ -56,5 +56,14 @@
                 </dependency>
             </dependencies>
         </profile>
+        <profile>
+            <id>kubo-micrometer</id>
+            <dependencies>
+                <dependency>
+                    <groupId>io.quarkus</groupId>
+                    <artifactId>quarkus-micrometer-registry-prometheus</artifactId>
+                </dependency>
+            </dependencies>
+        </profile>
     </profiles>
 </project>
