@@ -36,6 +36,7 @@ public class KuboSmokeTest implements QuarkusApplication {
     private static final String EXPECTED_CID = "bafkreiaabc27q6hpnrclwsa5cnjgzv3uv6zbonq7avwsn6bm2ncdi5fbjq";
 
     private static final long MIB = 1024 * 1024;
+    static final long DIRECTORY_POLICY_RPC_DELAY_MS = 300;
 
     @Inject
     KuboClient kubo;

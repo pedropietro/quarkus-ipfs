@@ -57,6 +57,7 @@ class KuboMetricsCheck implements KuboSmokeTest.MetricsCheck {
         Map<String, Integer> repeated = "directory-policy".equals(scenario)
                 ? Map.of("list_directory/timeout", 2, "list_directory/cancelled", 2) : Map.of();
         var seen = new HashSet<String>();
+        var counts = new HashMap<String, Long>();
         var durations = new HashMap<String, Double>();
         for (var timer : timers) {
             var id = timer.getId();
@@ -74,10 +75,15 @@ class KuboMetricsCheck implements KuboSmokeTest.MetricsCheck {
                 throw new IllegalStateException("Unexpected Kubo timer for " + sample + ": "
                         + timer.count() + " recordings and " + duration + " ns");
             }
+            if ("list_directory/success".equals(sample) && count == 1
+                    && duration < TimeUnit.MILLISECONDS.toNanos(2 * KuboSmokeTest.DIRECTORY_POLICY_RPC_DELAY_MS)) {
+                throw new IllegalStateException("Listing timer did not include the delays from both RPCs");
+            }
             if (count > 0) {
+                counts.put(sample, count);
                 durations.put(sample, duration);
             }
         }
-        System.out.println("Kubo metrics verified for " + scenario + " (expected sample counts and durations in ns): " + durations);
+        System.out.println("Kubo metrics verified for " + scenario + " (counts " + counts + ", durations in ns " + durations + ").");
     }
 }

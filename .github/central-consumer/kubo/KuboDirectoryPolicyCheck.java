@@ -48,7 +48,8 @@ class KuboDirectoryPolicyCheck implements KuboSmokeTest.DirectoryPolicyCheck {
     }
 
     private void verifySuccess() throws Exception {
-        var probe = new Probe(null, 0, 0);
+        long delay = KuboSmokeTest.DIRECTORY_POLICY_RPC_DELAY_MS;
+        var probe = new Probe(null, delay, delay);
         active = probe;
         if (!kubo.listDirectory(DIRECTORY_CID).get(6, TimeUnit.SECONDS).isEmpty()) {
             throw new IllegalStateException("Expected an empty listing");
@@ -99,10 +100,11 @@ class KuboDirectoryPolicyCheck implements KuboSmokeTest.DirectoryPolicyCheck {
         (stat ? probe.statCalls : probe.listCalls).incrementAndGet();
         String body = stat ? DIRECTORY : EMPTY_LIST;
         var response = request.response().putHeader("Content-Type", "application/json");
+        long delay = stat ? probe.statDelay : probe.listDelay;
         if (request.path().equals(probe.stallAt)) {
             sendPartialResponse(probe, response, body);
-        } else if (stat && probe.statDelay > 0) {
-            vertx.setTimer(probe.statDelay, ignored -> response.end(body));
+        } else if (delay > 0) {
+            vertx.setTimer(delay, ignored -> response.end(body));
         } else {
             response.end(body);
         }
