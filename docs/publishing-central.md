@@ -62,11 +62,11 @@ The `central-release` profile attaches Javadoc, signs the Maven artifacts, and c
 Upload the bundle in Central Portal. Review the validation results and confirm the publication there. Once the Portal reports the deployment as published, run the functional consumer check with the published extension version and its Quarkus BOM version. Run this command from the source checkout using Bash and Python 3 on Linux, or WSL on Windows.
 
 ~~~sh
-bash .github/central-consumer/verify.sh 0.9.0 4.0.0 jvm
+bash .github/central-consumer/verify.sh 0.10.0 4.0.0 jvm
 
 QUARKUS_NATIVE_CONTAINER_BUILD=true \
 QUARKUS_NATIVE_BUILDER_IMAGE=quay.io/quarkus/ubi10-quarkus-mandrel-builder-image:jdk-25 \
-  bash .github/central-consumer/verify.sh 0.9.0 4.0.0 native
+  bash .github/central-consumer/verify.sh 0.10.0 4.0.0 native
 ~~~
 
 Each invocation copies the consumer into its own temporary directory and starts with an empty local Maven repository. The JVM invocation launches the packaged JAR. The native invocation requires Docker for the container build shown above and launches the resulting Linux executable. Both verify the expected CID and compare the recovered binary bytes with the original payload. In native mode for the published 0.5.0 artifacts, the script activates a compatibility profile that adds Quarkus Netty for its runtime initialization rules. The 0.6.0 extension declares this dependency itself.
@@ -74,14 +74,14 @@ Each invocation copies the consumer into its own temporary directory and starts 
 For v0.8.0 and later, use the `kubo-https` scenario to verify authenticated UnixFS import and readback with the embedded node disabled. Use `kubo` to verify the v0.7.x releases over HTTP. The script starts Kubo and runs the packaged consumer on an isolated Docker network. Both invocations start with their own empty Maven repository.
 
 ~~~sh
-bash .github/central-consumer/verify.sh 0.9.0 4.0.0 jvm kubo-https
+bash .github/central-consumer/verify.sh 0.10.0 4.0.0 jvm kubo-https
 
 QUARKUS_NATIVE_CONTAINER_BUILD=true \
 QUARKUS_NATIVE_BUILDER_IMAGE=quay.io/quarkus/ubi10-quarkus-mandrel-builder-image:jdk-25 \
-  bash .github/central-consumer/verify.sh 0.9.0 4.0.0 native kubo-https
+  bash .github/central-consumer/verify.sh 0.10.0 4.0.0 native kubo-https
 ~~~
 
-The HTTPS scenario requires OpenSSL and runs a reverse proxy that exercises CA trust, hostname verification, trailers, redirects and authentication. It also imports and reads empty and 96 MiB files with a 64 MiB heap, verifying the size and SHA-256 of each file. For v0.9.0 and later, the HTTPS scenario also rotates the proxy CA in the running consumer and checks that active uploads and downloads finish. Starting with v0.10.0, the scenario uses periodic TLS reload and verifies readiness recovery over the same HTTPS connection path.
+The HTTPS scenario requires OpenSSL and runs a reverse proxy that exercises CA trust, hostname verification, trailers, redirects and authentication. It also imports and reads empty and 96 MiB files with a 64 MiB heap, verifying the size and SHA-256 of each file. For v0.9.0 and later, the HTTPS scenario also rotates the proxy CA in the running consumer and checks that active uploads and downloads finish. Starting with v0.10.0, the scenario uses periodic TLS reload and verifies readiness recovery over the same HTTPS connection path. It also compares directory names, order, and CIDs with authenticated `ipfs ls` for empty and nested directories and Unicode names.
 
 [Manual bundle upload](https://central.sonatype.org/publish/publish-portal-upload/)
 
