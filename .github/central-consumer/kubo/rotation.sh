@@ -29,7 +29,7 @@ verify_rotation() {
     local reload_args=()
     if [[ "$rotation_mode" == automatic ]]; then
         source "$fixture/kubo/readiness.sh"
-        reload_args=(-e QUARKUS_TLS__KUBO__RELOAD_PERIOD=2s -e KUBO_TEST_AUTO_ROTATION=true)
+        reload_args=(-e KUBO_TEST_RELOAD_PERIOD=2s -e KUBO_TEST_AUTO_ROTATION=true)
     fi
     start_app "$app" "$mode" "$artifact" --network "$network" "${reload_args[@]}" \
         --mount "type=bind,src=$coordination,dst=/rotation" \

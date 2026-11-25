@@ -84,7 +84,10 @@ elif [[ "$scenario" != block ]]; then
     fi
     if [[ "$rotation_mode" == automatic ]]; then
         package_args+=(-Pkubo-readiness)
-        echo quarkus.ipfs.kubo.health-enabled=true >> "$work/src/main/resources/application.properties"
+        cat >> "$work/src/main/resources/application.properties" <<'PROPERTIES'
+quarkus.ipfs.kubo.health-enabled=true
+quarkus.tls.kubo.reload-period=${KUBO_TEST_RELOAD_PERIOD:}
+PROPERTIES
     fi
     if [[ "$scenario" == kubo-https || "$metrics" != none ]]; then
         cat >> "$work/src/main/resources/application.properties" <<'PROPERTIES'
