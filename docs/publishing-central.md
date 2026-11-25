@@ -24,7 +24,7 @@ git tag -a v0.2.0 -m 'Release 0.2.0'
 git push origin v0.2.0
 ```
 
-The workflow accepts tags of the form `vMAJOR.MINOR.PATCH` and requires the tagged commit to be on `main` with a matching Maven version. It runs the JVM and native jobs from `Build`, signs the artifacts, and waits for Central Portal to publish them. After publication, the workflow builds an independent Quarkus application as a JAR and a Mandrel 25 Linux executable, each with its own empty Maven cache. Both run a block write and read by CID through the CDI bean. [Publication workflow](../.github/workflows/publish-central.yml)
+The workflow accepts tags of the form `vMAJOR.MINOR.PATCH` and requires the tagged commit to be on `main` with a matching Maven version. It runs the JVM and native jobs from `Build`, signs the artifacts, and waits for Central Portal to publish them. After publication, the workflow builds an independent Quarkus application as a JAR and a Mandrel 25 Linux executable, each with its own empty Maven cache. Both run a block write and read by CID through the CDI bean. For v0.8.0 and later, the workflow also tests the published artifacts against an authenticated Kubo API behind an HTTPS proxy with the embedded node disabled. [Publication workflow](../.github/workflows/publish-central.yml)
 
 The Build workflow retries Maven verification once after 15 seconds if Maven reports HTTP 429, 502, 503, or 504 while transferring an artifact. Test failures and persistent transfer errors fail the build. This retry runs before signing and upload.
 
@@ -62,26 +62,26 @@ The `central-release` profile attaches Javadoc, signs the Maven artifacts, and c
 Upload the bundle in Central Portal. Review the validation results and confirm the publication there. Once the Portal reports the deployment as published, run the functional consumer check with the published extension version and its Quarkus BOM version. Run this command from the source checkout using Bash and Python 3 on Linux, or WSL on Windows.
 
 ~~~sh
-bash .github/central-consumer/verify.sh 0.7.0 4.0.0 jvm
+bash .github/central-consumer/verify.sh 0.8.0 4.0.0 jvm
 
 QUARKUS_NATIVE_CONTAINER_BUILD=true \
 QUARKUS_NATIVE_BUILDER_IMAGE=quay.io/quarkus/ubi10-quarkus-mandrel-builder-image:jdk-25 \
-  bash .github/central-consumer/verify.sh 0.7.0 4.0.0 native
+  bash .github/central-consumer/verify.sh 0.8.0 4.0.0 native
 ~~~
 
 Each invocation copies the consumer into its own temporary directory and starts with an empty local Maven repository. The JVM invocation launches the packaged JAR. The native invocation requires Docker for the container build shown above and launches the resulting Linux executable. Both verify the expected CID and compare the recovered binary bytes with the original payload. In native mode for the published 0.5.0 artifacts, the script activates a compatibility profile that adds Quarkus Netty for its runtime initialization rules. The 0.6.0 extension declares this dependency itself.
 
-For releases from v0.7.0 onward, use the `kubo` scenario to verify authenticated UnixFS import and readback with the embedded node disabled. The script starts Kubo and runs the packaged consumer on an isolated Docker network. Both invocations start with their own empty Maven repository.
+For v0.8.0 and later, use the `kubo-https` scenario to verify authenticated UnixFS import and readback with the embedded node disabled. Use `kubo` to verify the v0.7.x releases over HTTP. The script starts Kubo and runs the packaged consumer on an isolated Docker network. Both invocations start with their own empty Maven repository.
 
 ~~~sh
-bash .github/central-consumer/verify.sh 0.7.0 4.0.0 jvm kubo
+bash .github/central-consumer/verify.sh 0.8.0 4.0.0 jvm kubo-https
 
 QUARKUS_NATIVE_CONTAINER_BUILD=true \
 QUARKUS_NATIVE_BUILDER_IMAGE=quay.io/quarkus/ubi10-quarkus-mandrel-builder-image:jdk-25 \
-  bash .github/central-consumer/verify.sh 0.7.0 4.0.0 native kubo
+  bash .github/central-consumer/verify.sh 0.8.0 4.0.0 native kubo-https
 ~~~
 
-For releases with named Kubo TLS configuration, the same commands accept the `kubo-https` scenario. It additionally requires OpenSSL and runs a reverse proxy that exercises CA trust, hostname verification, trailers and redirects. CI runs this HTTPS scenario against the checkout's packaged artifacts before publication.
+The HTTPS scenario requires OpenSSL and runs a reverse proxy that exercises CA trust, hostname verification, trailers and redirects.
 
 [Manual bundle upload](https://central.sonatype.org/publish/publish-portal-upload/)
 
