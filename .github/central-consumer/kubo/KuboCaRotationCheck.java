@@ -37,6 +37,7 @@ class KuboCaRotationCheck {
     Event<CertificateUpdatedEvent> updates;
 
     void verify() throws Exception {
+        boolean automatic = "true".equals(System.getenv("KUBO_TEST_AUTO_ROTATION"));
         byte[] smallFile = { 'I', 'P', 'F', 'S', 0, (byte) 0xff, '\n' };
         String smallCid = verifyExchange(smallFile);
         byte[] payload = new byte[4 * 1024 * 1024];
@@ -81,14 +82,9 @@ class KuboCaRotationCheck {
                 signal("active");
                 awaitSignal("new-trust");
 
-                var tls = registry.get("kubo").orElseThrow();
-                if (!tls.reload()) {
-                    throw new IllegalStateException("Could not reload the test trust store");
+                if (!automatic) {
+                    reloadManually(smallFile);
                 }
-                // A reload for a different name must not change the Kubo client's trust.
-                updates.fire(new CertificateUpdatedEvent("other", tls));
-                verifyExchange(smallFile);
-                updates.fire(new CertificateUpdatedEvent("kubo", tls));
                 verifyRejected(smallCid, smallFile, "the old CA");
                 signal("old-rejected");
 
@@ -113,8 +109,29 @@ class KuboCaRotationCheck {
         System.out.println("Kubo CA rotation preserved the in-flight 4 MiB upload and download byte for byte.");
 
         signal("new-accepted");
+        if (automatic) {
+            awaitSignal("invalid-trust");
+            verifyExchange(smallFile);
+            signal("invalid-trust-accepted");
+        }
         awaitSignal("wrong-hostname");
         verifyRejected(smallCid, smallFile, "a wrong hostname signed by the new CA");
+        if (automatic) {
+            signal("hostname-rejected");
+            awaitSignal("restored-proxy");
+            verifyExchange(smallFile);
+        }
+    }
+
+    private void reloadManually(byte[] payload) throws Exception {
+        var tls = registry.get("kubo").orElseThrow();
+        if (!tls.reload()) {
+            throw new IllegalStateException("Could not reload the test trust store");
+        }
+        // A reload for a different name must not change the Kubo client's trust.
+        updates.fire(new CertificateUpdatedEvent("other", tls));
+        verifyExchange(payload);
+        updates.fire(new CertificateUpdatedEvent("kubo", tls));
     }
 
     private String verifyExchange(byte[] payload) throws Exception {

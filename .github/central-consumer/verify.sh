@@ -33,6 +33,14 @@ case "$scenario" in
     kubo-readiness|kubo-readiness-no-health) readiness=true ;;
     *) printf 'Unknown consumer scenario: %s\n' "$scenario" >&2; exit 1 ;;
 esac
+rotation_mode=none
+if [[ "$scenario" == kubo-https ]]; then
+    if [[ "$reactor" == true || "$ipfs_version" != 0.[0-9].* ]]; then
+        rotation_mode=automatic
+    elif [[ "$ipfs_version" == 0.9.* ]]; then
+        rotation_mode=manual
+    fi
+fi
 package_args=()
 case "$mode" in
     jvm) ;;
@@ -73,6 +81,13 @@ elif [[ "$scenario" != block ]]; then
         if [[ "$metrics" == disabled ]]; then
             echo quarkus.ipfs.metrics-enabled=false >> "$work/src/main/resources/application.properties"
         fi
+    fi
+    if [[ "$rotation_mode" == automatic ]]; then
+        package_args+=(-Pkubo-readiness)
+        cat >> "$work/src/main/resources/application.properties" <<'PROPERTIES'
+quarkus.ipfs.kubo.health-enabled=true
+quarkus.tls.kubo.reload-period=${KUBO_TEST_RELOAD_PERIOD:}
+PROPERTIES
     fi
     if [[ "$scenario" == kubo-https || "$metrics" != none ]]; then
         cat >> "$work/src/main/resources/application.properties" <<'PROPERTIES'
