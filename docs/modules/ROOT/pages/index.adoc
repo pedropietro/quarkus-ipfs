@@ -88,7 +88,10 @@ quarkus.tls.kubo.trust-store.pem.certs=/etc/certs/kubo-ca.pem
 
 The trust store applies to block reads and file transfers. The client verifies the proxy hostname and does not follow redirects.
 Configure the proxy to forward HTTP trailers so the client receives errors such as `X-Stream-Error`.
-The client loads the configured trust store at initialization.
+The client loads the configured trust store at initialization and listens for updates to the named configuration.
+Set `quarkus.tls.kubo.reload-period` to enable periodic reloads, or reload the configuration and fire a `CertificateUpdatedEvent` from the application.
+New requests use the updated trust store and connections already serving a request can finish.
+When replacing a CA, distribute a trust store with both roots before switching the proxy certificate, then remove the old root.
 Use HTTPS for a remote RPC server that carries credentials.
 The base URL may include a reverse-proxy prefix.
 

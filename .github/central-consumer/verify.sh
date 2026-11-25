@@ -57,7 +57,7 @@ trap cleanup EXIT
 cp -- "$fixture/pom.xml" "$work/"
 if [[ "$scenario" != block ]]; then
     mkdir -p "$work/src/main/java/org/acme" "$work/src/main/resources"
-    cp -- "$fixture/kubo/KuboSmokeTest.java" "$work/src/main/java/org/acme/"
+    cp -- "$fixture/kubo/KuboSmokeTest.java" "$fixture/kubo/KuboCaRotationCheck.java" "$work/src/main/java/org/acme/"
     cp -- "$fixture/kubo/application.properties" "$work/src/main/resources/"
     if [[ "$metrics" != none ]]; then
         package_args+=(-Pkubo-micrometer)
