@@ -19,6 +19,11 @@ verify_https() {
         prepare_rotation "$certificates"
     fi
 
+    if [[ "$directory_listing" == true ]]; then
+        source "$fixture/kubo/directories.sh"
+        prepare_directory_limit "$certificates"
+    fi
+
     proxy="$network-proxy"
     local image='nginx:1.28.0-alpine@sha256:30f1c0d78e0ad60901648be663a710bdadf19e4c10ac6782c235200619158284'
     docker run -d --name "$proxy" --network "$network" \
@@ -31,6 +36,9 @@ verify_https() {
     if [[ "$scenario" == kubo-https ]]; then
         run_https_consumer unauthenticated kubo-proxy rpc ca.pem ''
         APP_MAX_HEAP=64m run_https_consumer streaming kubo-proxy rpc ca.pem
+        if [[ "$directory_listing" == true ]]; then
+            verify_directories
+        fi
         if [[ "$rotation_mode" != none ]]; then
             verify_rotation "$certificates"
         fi
@@ -54,18 +62,19 @@ verify_https() {
 
 run_https_consumer() {
     local expected=$1 host=$2 prefix=$3 ca=$4 token=${5-central-consumer-test} status
-    local wait_seconds=90 timeout_args=()
+    local wait_seconds=90 extra_args=()
     case "$expected" in
-        interrupted) timeout_args=(-e QUARKUS_IPFS_KUBO_TIMEOUT=2s) ;;
+        directory*) extra_args=(--mount "type=bind,src=$work/directories,dst=/directories,readonly") ;;
+        interrupted) extra_args=(-e QUARKUS_IPFS_KUBO_TIMEOUT=2s) ;;
         streaming)
-            timeout_args=(-e QUARKUS_IPFS_KUBO_TIMEOUT=60s)
+            extra_args=(-e QUARKUS_IPFS_KUBO_TIMEOUT=60s)
             wait_seconds=150
             ;;
     esac
     start_app "$app" "$mode" "$artifact" --network "$network" \
         --mount "type=bind,src=$work/https/$ca,dst=/fixture-ca.pem,readonly" \
         -e KUBO_TEST_CA=/fixture-ca.pem -e "KUBO_TEST_EXPECT=$expected" \
-        -e "KUBO_EXPECT_METRICS=$metrics" "${timeout_args[@]}" \
+        -e "KUBO_EXPECT_METRICS=$metrics" "${extra_args[@]}" \
         -e "QUARKUS_IPFS_KUBO_API_URL=https://$host:8443/$prefix" \
         -e "QUARKUS_IPFS_KUBO_BEARER_TOKEN=$token"
     status=$(timeout --kill-after=10s "$wait_seconds" docker wait "$app")

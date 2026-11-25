@@ -14,7 +14,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpRequest.BodyPublishers;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
@@ -38,6 +40,7 @@ import jakarta.inject.Inject;
 import org.eclipse.microprofile.context.ManagedExecutor;
 import org.jboss.logging.Logger;
 
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 import io.ipfs.cid.Cid;
@@ -57,6 +60,7 @@ import io.vertx.core.http.RequestOptions;
 /** CDI client for reading raw blocks and transferring UnixFS files through a configured Kubo HTTP RPC server. */
 public class KuboClient {
     private static final int MAX_ADD_RESPONSE_BYTES = 4096;
+    private static final int MAX_DIRECTORY_RESPONSE_BYTES = 1024 * 1024;
     private static final Duration READINESS_TIMEOUT = Duration.ofSeconds(2);
     private static final Logger LOG = Logger.getLogger(KuboClient.class);
 
@@ -207,6 +211,90 @@ public class KuboClient {
         }
         return send("block/get?arg=" + URLEncoder.encode(cid.toString(), UTF_8), HttpResponse.BodyHandlers.ofByteArray(),
                 reply -> readBlock(cid, reply), timeout);
+    }
+
+    /** A direct UnixFS directory entry in Kubo's listing order. */
+    public record DirectoryEntry(String name, String cid) {
+    }
+
+    /**
+     * List the direct entries of a UnixFS directory by CID. The returned list is immutable.
+     * The Kubo token needs access to both {@code files/stat} and {@code ls}. Each RPC uses the normal request timeout.
+     * An invalid CID or a non-directory fails with {@link IllegalArgumentException}, a missing CID with
+     * {@link NoSuchElementException}, and other HTTP errors with {@link KuboRequestException}.
+     * Malformed responses or listings larger than 1 MiB fail with {@link UncheckedIOException}.
+     */
+    public CompletableFuture<List<DirectoryEntry>> listDirectory(String cidString) {
+        Cid cid;
+        try {
+            cid = Cid.decode(cidString);
+        } catch (RuntimeException failure) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid IPFS CID", failure));
+        }
+        // Kubo ls also lists raw DAG links for a file, so confirm the root type before interpreting its entries.
+        String stat = "files/stat?arg=" + URLEncoder.encode("/ipfs/" + cid, UTF_8) + "&enc=json";
+        return transfer(stat, (request, result) -> {
+            var metadata = directoryResponse(request, "files/stat", cid, 4096);
+            if (!"directory".equals(jsonString(metadata, "Type"))) {
+                throw new IllegalArgumentException("Expected a UnixFS directory");
+            }
+            return null;
+        }).thenCompose(ignored -> transfer(
+                "ls?arg=" + URLEncoder.encode(cid.toString(), UTF_8) + "&size=false&resolve-type=false&enc=json",
+                (request, result) -> directoryEntries(directoryResponse(request, "ls", cid, MAX_DIRECTORY_RESPONSE_BYTES))));
+    }
+
+    private static JsonObject directoryResponse(HttpClientRequest request, String operation, Cid cid, int limit)
+            throws IOException, InterruptedException {
+        var reply = await(request.send().map(StreamResponse::new));
+        int status = reply.http.statusCode();
+        if (status != 200) {
+            if (status == 404 || status == 500
+                    && new String(reply.readPrefix(4096), UTF_8).contains("ipld: could not find " + cid)) {
+                throw new NoSuchElementException("IPFS directory not found: " + cid);
+            }
+            throw new KuboRequestException(operation, status);
+        }
+        byte[] data = reply.readPrefix(limit + 1);
+        if (data.length > limit) {
+            throw new IOException("Kubo " + operation + " response exceeded " + limit + " bytes");
+        }
+        reply.checkTrailer(operation);
+        try {
+            return JsonParser.parseString(new String(data, UTF_8)).getAsJsonObject();
+        } catch (RuntimeException failure) {
+            throw new IOException("Invalid Kubo " + operation + " response", failure);
+        }
+    }
+
+    private static List<DirectoryEntry> directoryEntries(JsonObject listing) throws IOException {
+        try {
+            var objects = listing.getAsJsonArray("Objects");
+            if (objects == null || objects.size() != 1) {
+                throw new IOException("Expected one directory in the Kubo ls response");
+            }
+            var links = objects.get(0).getAsJsonObject().getAsJsonArray("Links");
+            if (links == null) {
+                throw new IOException("Missing links in the Kubo ls response");
+            }
+            var entries = new ArrayList<DirectoryEntry>(links.size());
+            for (var link : links) {
+                var entry = link.getAsJsonObject();
+                entries.add(new DirectoryEntry(jsonString(entry, "Name"), Cid.decode(jsonString(entry, "Hash")).toString()));
+            }
+            return List.copyOf(entries);
+        } catch (RuntimeException failure) {
+            throw new IOException("Invalid Kubo ls response", failure);
+        }
+    }
+
+    private static String jsonString(JsonObject object, String field) throws IOException {
+        var value = object.get(field);
+        if (value == null || !value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()
+                || value.getAsString().isEmpty()) {
+            throw new IOException("Invalid " + field + " in the Kubo directory response");
+        }
+        return value.getAsString();
     }
 
     CompletableFuture<Boolean> checkReadiness() {
