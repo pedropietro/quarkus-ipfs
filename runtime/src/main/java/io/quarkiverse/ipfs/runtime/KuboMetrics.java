@@ -89,7 +89,8 @@ public final class KuboMetrics {
             case NoSuchElementException ignored -> Outcome.HTTP_ERROR;
             case TimeoutException ignored -> Outcome.TIMEOUT;
             case CancellationException ignored -> Outcome.CANCELLED;
-            case UncheckedIOException failure when failure.getCause() instanceof KuboClient.StreamException -> Outcome.STREAM_ERROR;
+            case UncheckedIOException failure when failure.getCause() instanceof KuboClient.StreamException ->
+                Outcome.STREAM_ERROR;
             default -> Outcome.FAILURE;
         };
     }
