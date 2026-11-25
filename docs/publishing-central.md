@@ -81,7 +81,7 @@ QUARKUS_NATIVE_BUILDER_IMAGE=quay.io/quarkus/ubi10-quarkus-mandrel-builder-image
   bash .github/central-consumer/verify.sh 0.8.0 4.0.0 native kubo-https
 ~~~
 
-The HTTPS scenario requires OpenSSL and runs a reverse proxy that exercises CA trust, hostname verification, trailers and redirects.
+The HTTPS scenario requires OpenSSL and runs a reverse proxy that exercises CA trust, hostname verification, trailers, redirects and authentication. It also imports and reads empty and 96 MiB files with a 64 MiB heap, verifying the size and SHA-256 of each file.
 
 [Manual bundle upload](https://central.sonatype.org/publish/publish-portal-upload/)
 

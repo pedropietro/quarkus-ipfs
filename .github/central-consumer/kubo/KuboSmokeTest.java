@@ -6,7 +6,13 @@ import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.DigestOutputStream;
+import java.security.MessageDigest;
 import java.util.Arrays;
+import java.util.HexFormat;
+import java.util.Random;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -29,6 +35,8 @@ import io.quarkus.runtime.annotations.QuarkusMain;
 public class KuboSmokeTest implements QuarkusApplication {
     private static final String EXPECTED_CID = "bafkreiaabc27q6hpnrclwsa5cnjgzv3uv6zbonq7avwsn6bm2ncdi5fbjq";
 
+    private static final long MIB = 1024 * 1024;
+
     @Inject
     KuboClient kubo;
 
@@ -46,8 +54,20 @@ public class KuboSmokeTest implements QuarkusApplication {
         }
         // The configured swarm port must be available throughout the Kubo-only test.
         try (var listener = new ServerSocket(4001, 1, InetAddress.getByName("127.0.0.1"))) {
-            byte[] payload = { 'I', 'P', 'F', 'S', 0, (byte) 0xff, '\n' };
             String scenario = System.getenv("KUBO_TEST_EXPECT");
+            if ("streaming".equals(scenario)) {
+                long heap = Runtime.getRuntime().maxMemory();
+                if (heap > 64 * MIB) {
+                    throw new IllegalStateException("Expected a heap of at most 64 MiB, got " + heap + " bytes");
+                }
+                System.out.printf("Kubo HTTPS streaming with heap capped at 64 MiB (reported %d bytes). "
+                        + "Embedded node absent and swarm port %d available.%n", heap, listener.getLocalPort());
+                verifyStreamingFile(0);
+                verifyStreamingFile(96 * MIB);
+                return 0;
+            }
+
+            byte[] payload = { 'I', 'P', 'F', 'S', 0, (byte) 0xff, '\n' };
             if (scenario != null && !"success".equals(scenario)) {
                 if ("interrupted".equals(scenario)) {
                     verifyInterrupted();
@@ -81,6 +101,42 @@ public class KuboSmokeTest implements QuarkusApplication {
             System.out.printf("Authenticated Kubo consumer imported and read %d bytes by CID %s. "
                     + "Embedded node absent and swarm port %d available.%n", bytes, cid, listener.getLocalPort());
             return 0;
+        }
+    }
+
+    private void verifyStreamingFile(long size) throws Exception {
+        Path source = Files.createTempFile("kubo-https-", ".bin");
+        try {
+            var expectedDigest = MessageDigest.getInstance("SHA-256");
+            var random = new Random(42);
+            byte[] buffer = new byte[64 * 1024];
+            try (var output = new DigestOutputStream(Files.newOutputStream(source), expectedDigest)) {
+                for (long remaining = size; remaining > 0;) {
+                    random.nextBytes(buffer);
+                    int chunk = (int) Math.min(remaining, buffer.length);
+                    output.write(buffer, 0, chunk);
+                    remaining -= chunk;
+                }
+            }
+
+            String cid;
+            try (var input = Files.newInputStream(source)) {
+                cid = kubo.addFile(input, false).get(65, TimeUnit.SECONDS);
+            }
+
+            var actualDigest = MessageDigest.getInstance("SHA-256");
+            long bytes;
+            try (var output = new DigestOutputStream(OutputStream.nullOutputStream(), actualDigest)) {
+                bytes = kubo.writeFile(cid, output).get(65, TimeUnit.SECONDS);
+            }
+            byte[] sha256 = actualDigest.digest();
+            if (bytes != size || !Arrays.equals(expectedDigest.digest(), sha256)) {
+                throw new IllegalStateException("Kubo HTTPS streaming returned different content for CID " + cid);
+            }
+            System.out.printf("Authenticated Kubo HTTPS streaming imported and read %d bytes by CID %s (SHA-256 %s).%n",
+                    bytes, cid, HexFormat.of().formatHex(sha256));
+        } finally {
+            Files.deleteIfExists(source);
         }
     }
 
@@ -132,6 +188,8 @@ public class KuboSmokeTest implements QuarkusApplication {
             Throwable cause = failure.getCause();
             boolean expected = switch (scenario) {
                 case "timeout" -> cause instanceof TimeoutException;
+                case "unauthenticated" -> cause instanceof KuboClient.KuboRequestException error
+                        && (error.statusCode() == 401 || error.statusCode() == 403);
                 case "redirect" -> cause instanceof KuboClient.KuboRequestException error && error.statusCode() == 307;
                 case "trailers" -> cause instanceof UncheckedIOException error
                         && error.getCause().getMessage().contains("X-Stream-Error");

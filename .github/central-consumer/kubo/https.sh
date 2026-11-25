@@ -23,6 +23,10 @@ verify_https() {
     await_ready docker exec "$proxy" wget -q -O /dev/null http://127.0.0.1:8080/ready
 
     run_https_consumer success kubo-proxy rpc ca.pem
+    if [[ "$scenario" == kubo-https ]]; then
+        run_https_consumer unauthenticated kubo-proxy rpc ca.pem ''
+        APP_MAX_HEAP=64m run_https_consumer streaming kubo-proxy rpc ca.pem
+    fi
     if [[ "$metrics" == disabled ]]; then
         return
     fi
@@ -41,18 +45,22 @@ verify_https() {
 }
 
 run_https_consumer() {
-    local expected=$1 host=$2 prefix=$3 ca=$4 status
-    local timeout_args=()
-    if [[ "$expected" == interrupted ]]; then
-        timeout_args=(-e QUARKUS_IPFS_KUBO_TIMEOUT=2s)
-    fi
+    local expected=$1 host=$2 prefix=$3 ca=$4 token=${5-central-consumer-test} status
+    local wait_seconds=90 timeout_args=()
+    case "$expected" in
+        interrupted) timeout_args=(-e QUARKUS_IPFS_KUBO_TIMEOUT=2s) ;;
+        streaming)
+            timeout_args=(-e QUARKUS_IPFS_KUBO_TIMEOUT=60s)
+            wait_seconds=150
+            ;;
+    esac
     start_app "$app" "$mode" "$artifact" --network "$network" \
         --mount "type=bind,src=$work/https/$ca,dst=/fixture-ca.pem,readonly" \
         -e KUBO_TEST_CA=/fixture-ca.pem -e "KUBO_TEST_EXPECT=$expected" \
         -e "KUBO_EXPECT_METRICS=$metrics" "${timeout_args[@]}" \
         -e "QUARKUS_IPFS_KUBO_API_URL=https://$host:8443/$prefix" \
-        -e QUARKUS_IPFS_KUBO_BEARER_TOKEN=central-consumer-test
-    status=$(timeout --kill-after=10s 90s docker wait "$app")
+        -e "QUARKUS_IPFS_KUBO_BEARER_TOKEN=$token"
+    status=$(timeout --kill-after=10s "$wait_seconds" docker wait "$app")
     docker logs "$app"
     test "$status" = 0
     docker rm -v "$app" >/dev/null
