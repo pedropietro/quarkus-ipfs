@@ -289,37 +289,34 @@ public class KuboClient {
 
     /** Pull one buffer at a time from Vert.x while the caller's I/O runs on a worker. */
     private static final class StreamResponse {
-        private static final Buffer END = Buffer.buffer();
+        private record Part(Buffer buffer, Throwable failure) {
+        }
+
         private final HttpClientResponse http;
-        private final ArrayBlockingQueue<Buffer> incoming = new ArrayBlockingQueue<>(2);
+        private final ArrayBlockingQueue<Part> incoming = new ArrayBlockingQueue<>(2);
         private final AtomicBoolean finished = new AtomicBoolean();
-        private Throwable failure;
 
         private StreamResponse(HttpClientResponse http) {
             this.http = http;
             http.pause();
-            http.handler(incoming::add);
+            http.handler(buffer -> incoming.add(new Part(buffer, null)));
             http.exceptionHandler(error -> finish(error));
             http.endHandler(ignored -> finish(null));
         }
 
         private void finish(Throwable error) {
             if (finished.compareAndSet(false, true)) {
-                failure = error;
-                incoming.add(END);
+                incoming.add(new Part(null, error));
             }
         }
 
         private Buffer next() throws IOException, InterruptedException {
             http.fetch(1);
-            var chunk = incoming.take();
-            if (chunk != END) {
-                return chunk;
+            var part = incoming.take();
+            if (part.failure() != null) {
+                throw new IOException("Kubo response ended prematurely", part.failure());
             }
-            if (failure != null) {
-                throw new IOException("Kubo response ended prematurely", failure);
-            }
-            return null;
+            return part.buffer();
         }
 
         private byte[] readPrefix(int limit) throws IOException, InterruptedException {
