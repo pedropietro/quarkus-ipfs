@@ -12,7 +12,7 @@ verify_kubo_readiness() {
         return
     fi
 
-    await_ready expect_readiness UP 200
+    await_readiness UP 200
     echo 'Kubo readiness is UP on the authenticated version RPC.'
 
     docker pause "$kubo" >/dev/null
@@ -21,18 +21,18 @@ verify_kubo_readiness() {
     docker unpause "$kubo" >/dev/null
     test "$probe_status" = 0
     echo 'Kubo readiness reported DOWN after the RPC deadline while Kubo was paused.'
-    await_ready expect_readiness UP 200
+    await_readiness UP 200
 
     docker stop --time 5 "$kubo" >/dev/null
     expect_readiness DOWN 503
     echo 'Kubo readiness reported DOWN when the RPC was unavailable.'
     docker start "$kubo" >/dev/null
-    await_ready expect_readiness UP 200
+    await_readiness UP 200
     echo 'Kubo readiness recovered to UP in the same consumer.'
 
     docker rm -fv "$app" >/dev/null
     start_readiness_app invalid-token
-    await_ready expect_readiness DOWN 503
+    await_readiness DOWN 503
     echo 'Kubo readiness reported DOWN when the version RPC rejected authentication.'
 }
 
@@ -48,6 +48,10 @@ readiness_app_started() {
     docker logs "$app" 2>&1 | grep -F 'Kubo readiness consumer started without an embedded node'
 }
 
+await_readiness() {
+    await_ready expect_readiness "$@" || expect_readiness "$@"
+}
+
 expect_readiness() {
     local expected_status=$1 expected_code=$2 response
     response=$(docker exec "$app" curl --silent --show-error --max-time 5 --write-out $'\n%{http_code}' \
@@ -56,7 +60,7 @@ expect_readiness() {
 import json
 import sys
 
-body, code = sys.stdin.read().rsplit("\n", 1)
+body, code = sys.stdin.read().rstrip("\n").rsplit("\n", 1)
 expected_status, expected_code = sys.argv[1:]
 payload = json.loads(body)
 if (code.strip() != expected_code or payload["status"] != expected_status
