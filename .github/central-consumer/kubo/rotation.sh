@@ -23,30 +23,78 @@ prepare_rotation() {
 }
 
 verify_rotation() {
-    local certificates=$1 coordination="$work/rotation-client" status
+    local certificates=$1 coordination="$work/rotation-client" status attempt
     mkdir -p "$coordination"
     cp -- "$certificates/ca.pem" "$coordination/ca.pem"
-    start_app "$app" "$mode" "$artifact" --network "$network" \
+    local reload_args=()
+    if [[ "$rotation_mode" == automatic ]]; then
+        source "$fixture/kubo/readiness.sh"
+        reload_args=(-e QUARKUS_TLS__KUBO__RELOAD_PERIOD=2s -e KUBO_TEST_AUTO_ROTATION=true)
+    fi
+    start_app "$app" "$mode" "$artifact" --network "$network" "${reload_args[@]}" \
         --mount "type=bind,src=$coordination,dst=/rotation" \
         -e KUBO_TEST_CA=/rotation/ca.pem -e KUBO_TEST_EXPECT=rotation \
         -e QUARKUS_IPFS_KUBO_TIMEOUT=60s -e QUARKUS_IPFS_KUBO_API_URL=https://kubo-proxy:9443 \
         -e QUARKUS_IPFS_KUBO_BEARER_TOKEN=central-consumer-test
 
     await_ready test -f "$coordination/active"
-    cp -- "$certificates/untrusted.pem" "$coordination/ca.next"
-    mv -f -- "$coordination/ca.next" "$coordination/ca.pem"
+    if [[ "$rotation_mode" == automatic ]]; then
+        expect_readiness UP 200
+        echo 'HTTPS readiness is UP with the original CA.'
+    fi
+    replace_trust_store "$certificates/untrusted.pem" "$coordination"
+    if [[ "$rotation_mode" == automatic ]]; then
+        await_readiness DOWN 503
+        echo 'Periodic CA reload made HTTPS readiness DOWN while the proxy still presented the removed CA.'
+    fi
     touch "$coordination/new-trust"
     await_ready test -f "$coordination/old-rejected"
     switch_proxy_certificate "$certificates/rotation" next
+    if [[ "$rotation_mode" == automatic ]]; then
+        await_readiness UP 200
+        echo 'HTTPS readiness recovered to UP in the same consumer after the proxy switched to the new CA.'
+    fi
     touch "$coordination/new-proxy"
     await_ready test -f "$coordination/new-accepted"
+
+    if [[ "$rotation_mode" == automatic ]]; then
+        printf 'invalid PEM\n' >"$coordination/ca.next"
+        mv -f -- "$coordination/ca.next" "$coordination/ca.pem"
+        # Leave the invalid file in place across multiple two-second reload periods.
+        for attempt in 1 2 3; do
+            sleep 2
+            expect_readiness UP 200
+        done
+        touch "$coordination/invalid-trust"
+        await_ready test -f "$coordination/invalid-trust-accepted"
+        replace_trust_store "$certificates/untrusted.pem" "$coordination"
+        echo 'HTTPS readiness and Kubo RPCs stayed UP with the last valid CA while the PEM was invalid.'
+    fi
+
     switch_proxy_certificate "$certificates/rotation" mismatch
+    if [[ "$rotation_mode" == automatic ]]; then
+        await_readiness DOWN 503
+        echo 'HTTPS readiness is DOWN with an incorrect proxy hostname.'
+    fi
     touch "$coordination/wrong-hostname"
+    if [[ "$rotation_mode" == automatic ]]; then
+        await_ready test -f "$coordination/hostname-rejected"
+        switch_proxy_certificate "$certificates/rotation" next
+        await_readiness UP 200
+        echo 'HTTPS readiness is UP after restoring the correct proxy hostname.'
+        touch "$coordination/restored-proxy"
+    fi
 
     status=$(timeout --kill-after=10s 90s docker wait "$app")
     docker logs "$app"
     test "$status" = 0
     docker rm -v "$app" >/dev/null
+}
+
+replace_trust_store() {
+    local certificate=$1 coordination=$2
+    cp -- "$certificate" "$coordination/ca.next"
+    mv -f -- "$coordination/ca.next" "$coordination/ca.pem"
 }
 
 switch_proxy_certificate() {

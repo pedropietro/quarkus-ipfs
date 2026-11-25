@@ -14,7 +14,7 @@ verify_https() {
         -CAcreateserial -days 2 -extfile "$certificates/server.ext" -out "$certificates/server.pem"
     sed "s/@KUBO@/$kubo/g" "$fixture/kubo/nginx.conf" >"$certificates/nginx.conf"
 
-    if [[ "$scenario" == kubo-https && ( "$reactor" == true || "$ipfs_version" != 0.[0-8].* ) ]]; then
+    if [[ "$rotation_mode" != none ]]; then
         source "$fixture/kubo/rotation.sh"
         prepare_rotation "$certificates"
     fi
@@ -31,7 +31,7 @@ verify_https() {
     if [[ "$scenario" == kubo-https ]]; then
         run_https_consumer unauthenticated kubo-proxy rpc ca.pem ''
         APP_MAX_HEAP=64m run_https_consumer streaming kubo-proxy rpc ca.pem
-        if declare -F verify_rotation >/dev/null; then
+        if [[ "$rotation_mode" != none ]]; then
             verify_rotation "$certificates"
         fi
     fi
