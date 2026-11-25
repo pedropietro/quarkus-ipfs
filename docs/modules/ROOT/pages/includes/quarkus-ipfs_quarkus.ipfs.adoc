@@ -49,6 +49,27 @@ endif::add-copy-button-to-env-var[]
 |boolean
 |`+++false+++`
 
+a|icon:lock[title=Fixed at build time] [[quarkus-ipfs_quarkus-ipfs-kubo-health-enabled]] [.property-path]##link:#quarkus-ipfs_quarkus-ipfs-kubo-health-enabled[`+++quarkus.ipfs.kubo.health-enabled+++`]##
+ifdef::add-copy-button-to-config-props[]
+config_property_copy_button:+++quarkus.ipfs.kubo.health-enabled+++[]
+endif::add-copy-button-to-config-props[]
+
+
+[.description]
+--
+Whether to register a Kubo readiness check when the Kubo client and SmallRye Health are enabled. The check makes an authenticated version request with a deadline of at most two seconds.
+
+
+ifdef::add-copy-button-to-env-var[]
+Environment variable: env_var_with_copy_button:+++QUARKUS_IPFS_KUBO_HEALTH_ENABLED+++[]
+endif::add-copy-button-to-env-var[]
+ifndef::add-copy-button-to-env-var[]
+Environment variable: `+++QUARKUS_IPFS_KUBO_HEALTH_ENABLED+++`
+endif::add-copy-button-to-env-var[]
+--
+|boolean
+|`+++false+++`
+
 a|icon:lock[title=Fixed at build time] [[quarkus-ipfs_quarkus-ipfs-health-enabled]] [.property-path]##link:#quarkus-ipfs_quarkus-ipfs-health-enabled[`+++quarkus.ipfs.health-enabled+++`]##
 ifdef::add-copy-button-to-config-props[]
 config_property_copy_button:+++quarkus.ipfs.health-enabled+++[]

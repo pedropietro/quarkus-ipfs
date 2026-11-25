@@ -108,6 +108,11 @@ The timeout covers the request body and response. Cancellation or timeout can le
 Both file operations check for an `X-Stream-Error` trailer before reporting success. A late server error fails the future even after the client receives the CID or writes every advertised byte.
 Grant the configured bearer token access to `/api/v0/add` for uploads.
 
+With SmallRye Health installed, set `quarkus.ipfs.kubo.health-enabled=true` at build time to add a `kubo` check to `/q/health/ready`.
+The check works when the embedded node is disabled and uses the client's TLS configuration and bearer token.
+Grant the token access to `/api/v0/version`. The probe uses the shorter of the Kubo timeout and two seconds.
+The check reports DOWN when the RPC returns an unsuccessful response or cannot be reached, and reports UP again on the next successful probe.
+
 == Storage and identity
 
 The default storage backend, `RAM`, keeps blocks in memory for one application run.

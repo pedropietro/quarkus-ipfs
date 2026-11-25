@@ -25,6 +25,14 @@ public interface IpfsBuildTimeConfig {
     boolean kuboEnabled();
 
     /**
+     * Whether to register a Kubo readiness check when the Kubo client and SmallRye Health are enabled.
+     * The check makes an authenticated version request with a deadline of at most two seconds.
+     */
+    @WithName("kubo.health-enabled")
+    @WithDefault("false")
+    boolean kuboHealthEnabled();
+
+    /**
      * Whether to register an IPFS readiness health check at {@code /q/health/ready}.
      * Requires the IPFS extension to be enabled and SmallRye Health to be installed.
      * The check only inspects the local node.

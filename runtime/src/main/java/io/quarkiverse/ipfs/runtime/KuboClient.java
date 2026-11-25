@@ -27,6 +27,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 
 import javax.net.ssl.SSLContext;
 
@@ -56,6 +57,7 @@ import io.vertx.core.http.RequestOptions;
 /** CDI client for reading raw blocks and transferring UnixFS files through a configured Kubo HTTP RPC server. */
 public class KuboClient {
     private static final int MAX_ADD_RESPONSE_BYTES = 4096;
+    private static final Duration READINESS_TIMEOUT = Duration.ofSeconds(2);
     private static final Logger LOG = Logger.getLogger(KuboClient.class);
 
     private final Vertx vertx;
@@ -203,15 +205,26 @@ public class KuboClient {
         } catch (RuntimeException failure) {
             return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid IPFS CID", failure));
         }
+        return send("block/get?arg=" + URLEncoder.encode(cid.toString(), UTF_8), HttpResponse.BodyHandlers.ofByteArray(),
+                reply -> readBlock(cid, reply), timeout);
+    }
+
+    CompletableFuture<Boolean> checkReadiness() {
+        Duration deadline = timeout.compareTo(READINESS_TIMEOUT) < 0 ? timeout : READINESS_TIMEOUT;
+        return send("version", HttpResponse.BodyHandlers.discarding(), reply -> reply.statusCode() == 200, deadline);
+    }
+
+    private <B, T> CompletableFuture<T> send(String path, HttpResponse.BodyHandler<B> bodyHandler,
+            Function<HttpResponse<B>, T> process, Duration deadline) {
         var transport = acquireTransport();
-        CompletableFuture<HttpResponse<byte[]>> response;
+        CompletableFuture<HttpResponse<B>> response;
         try {
-            response = transport.blocks.sendAsync(request("block/get", cid), HttpResponse.BodyHandlers.ofByteArray());
+            response = transport.blocks.sendAsync(request(path), bodyHandler);
         } catch (RuntimeException failure) {
             releaseTransport(transport);
             throw failure;
         }
-        var result = response.thenApply(reply -> readBlock(cid, reply)).orTimeout(timeout.toNanos(), TimeUnit.NANOSECONDS);
+        var result = response.thenApply(process).orTimeout(deadline.toNanos(), TimeUnit.NANOSECONDS);
         result.whenComplete((value, failure) -> {
             if (failure instanceof TimeoutException || result.isCancelled()) {
                 response.cancel(true);
@@ -305,10 +318,8 @@ public class KuboClient {
         return result;
     }
 
-    private HttpRequest request(String operation, Cid cid) {
-        var request = HttpRequest
-                .newBuilder(URI.create(rpcBase + operation + "?arg=" + URLEncoder.encode(cid.toString(), UTF_8)))
-                .POST(BodyPublishers.noBody());
+    private HttpRequest request(String path) {
+        var request = HttpRequest.newBuilder(URI.create(rpcBase + path)).POST(BodyPublishers.noBody());
         bearerToken.ifPresent(token -> request.header("Authorization", "Bearer " + token));
         return request.build();
     }

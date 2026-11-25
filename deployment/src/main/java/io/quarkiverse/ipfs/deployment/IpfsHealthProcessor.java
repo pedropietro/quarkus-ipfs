@@ -1,5 +1,6 @@
 package io.quarkiverse.ipfs.deployment;
 
+import io.quarkiverse.ipfs.runtime.KuboHealthCheck;
 import io.quarkiverse.ipfs.runtime.config.IpfsBuildTimeConfig;
 import io.quarkiverse.ipfs.runtime.health.IpfsHealthCheck;
 import io.quarkus.deployment.Capabilities;
@@ -15,5 +16,13 @@ class IpfsHealthProcessor {
             return null;
         }
         return new HealthBuildItem(IpfsHealthCheck.class.getName(), true);
+    }
+
+    @BuildStep
+    HealthBuildItem addKuboHealthCheck(IpfsBuildTimeConfig config, Capabilities capabilities) {
+        if (!config.kuboEnabled() || !config.kuboHealthEnabled() || !capabilities.isPresent(Capability.SMALLRYE_HEALTH)) {
+            return null;
+        }
+        return new HealthBuildItem(KuboHealthCheck.class.getName(), true);
     }
 }

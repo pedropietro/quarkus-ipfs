@@ -5,6 +5,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 
 import java.nio.charset.StandardCharsets;
@@ -53,6 +54,7 @@ public class IpfsResourceTest {
     @Test
     public void reportsReadiness() {
         given().when().get("/q/health/ready").then().statusCode(200)
-                .body("status", is("UP")).body("checks.find { it.name == 'ipfs' }.status", is("UP"));
+                .body("status", is("UP")).body("checks.find { it.name == 'ipfs' }.status", is("UP"))
+                .body("checks.find { it.name == 'kubo' }", nullValue());
     }
 }
