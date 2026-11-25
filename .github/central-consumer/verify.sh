@@ -7,7 +7,7 @@ root=$(cd -- "$fixture/../.." && pwd -P)
 reactor=false
 if [[ "${1:-}" == --reactor ]]; then
     reactor=true
-    mode=${2:?Usage: verify.sh --reactor jvm|native [block|kubo|kubo-https|kubo-metrics|kubo-metrics-disabled]}
+    mode=${2:?Usage: verify.sh --reactor jvm|native [block|kubo|kubo-https|kubo-metrics|kubo-metrics-disabled|kubo-readiness|kubo-readiness-no-health]}
     scenario=${3:-kubo}
     read -r ipfs_version quarkus_version < <(python3 - "$root/pom.xml" <<'PY'
 import sys
@@ -18,17 +18,19 @@ print(pom.findtext("{*}version"), pom.findtext("{*}properties/{*}quarkus.version
 PY
     )
 else
-    ipfs_version=${1:?Usage: verify.sh ipfs-version quarkus-version [jvm|native] [block|kubo|kubo-https|kubo-metrics|kubo-metrics-disabled]}
+    ipfs_version=${1:?Usage: verify.sh ipfs-version quarkus-version [jvm|native] [block|kubo|kubo-https|kubo-metrics|kubo-metrics-disabled|kubo-readiness|kubo-readiness-no-health]}
     quarkus_version=${2:?Pass the Quarkus version}
     mode=${3:-jvm}
     scenario=${4:-block}
 fi
 
 metrics=none
+readiness=false
 case "$scenario" in
     block|kubo|kubo-https) ;;
     kubo-metrics) metrics=enabled ;;
     kubo-metrics-disabled) metrics=disabled ;;
+    kubo-readiness|kubo-readiness-no-health) readiness=true ;;
     *) printf 'Unknown consumer scenario: %s\n' "$scenario" >&2; exit 1 ;;
 esac
 package_args=()
@@ -55,7 +57,13 @@ cleanup() {
 trap cleanup EXIT
 
 cp -- "$fixture/pom.xml" "$work/"
-if [[ "$scenario" != block ]]; then
+if [[ "$readiness" == true ]]; then
+    mkdir -p "$work/src/main/java/org/acme" "$work/src/main/resources"
+    cp -- "$fixture/kubo/KuboReadinessApp.java" "$work/src/main/java/org/acme/"
+    cp -- "$fixture/kubo/application.properties" "$work/src/main/resources/"
+    echo quarkus.ipfs.kubo.health-enabled=true >> "$work/src/main/resources/application.properties"
+    package_args+=("-P$scenario")
+elif [[ "$scenario" != block ]]; then
     mkdir -p "$work/src/main/java/org/acme" "$work/src/main/resources"
     cp -- "$fixture/kubo/KuboSmokeTest.java" "$fixture/kubo/KuboCaRotationCheck.java" "$work/src/main/java/org/acme/"
     cp -- "$fixture/kubo/application.properties" "$work/src/main/resources/"
@@ -131,13 +139,20 @@ kubo="$network-kubo"
 app="$network-app"
 docker network create --internal "$network" >/dev/null
 docker run -d --name "$kubo" --network "$network" --entrypoint sh "$kubo_image" -ec '
-    ipfs init --profile=server
-    ipfs bootstrap rm --all
-    ipfs config Addresses.API /ip4/0.0.0.0/tcp/5001
-    ipfs config --json API.Authorizations "{\"test\":{\"AuthSecret\":\"bearer:central-consumer-test\",\"AllowedPaths\":[\"/api/v0/add\",\"/api/v0/cat\",\"/api/v0/block/get\"]}}"
+    if [ ! -f "${IPFS_PATH:-/data/ipfs}/config" ]; then
+        ipfs init --profile=server
+        ipfs bootstrap rm --all
+        ipfs config Addresses.API /ip4/0.0.0.0/tcp/5001
+        ipfs config --json API.Authorizations "{\"test\":{\"AuthSecret\":\"bearer:central-consumer-test\",\"AllowedPaths\":[\"/api/v0/add\",\"/api/v0/cat\",\"/api/v0/block/get\",\"/api/v0/version\"]}}"
+    fi
     exec ipfs daemon --offline
 ' >/dev/null
 await_ready kubo_ready "$kubo"
+if [[ "$readiness" == true ]]; then
+    source "$fixture/kubo/readiness.sh"
+    verify_kubo_readiness
+    exit
+fi
 if [[ "$scenario" == kubo-https || "$metrics" != none ]]; then
     source "$fixture/kubo/https.sh"
     verify_https

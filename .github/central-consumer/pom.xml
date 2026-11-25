@@ -65,5 +65,23 @@
                 </dependency>
             </dependencies>
         </profile>
+        <profile>
+            <id>kubo-readiness</id>
+            <dependencies>
+                <dependency>
+                    <groupId>io.quarkus</groupId>
+                    <artifactId>quarkus-smallrye-health</artifactId>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>kubo-readiness-no-health</id>
+            <dependencies>
+                <dependency>
+                    <groupId>io.quarkus</groupId>
+                    <artifactId>quarkus-vertx-http</artifactId>
+                </dependency>
+            </dependencies>
+        </profile>
     </profiles>
 </project>
