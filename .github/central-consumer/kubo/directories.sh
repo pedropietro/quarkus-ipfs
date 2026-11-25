@@ -17,15 +17,18 @@ verify_directories() {
         done
         ipfs add --api-auth bearer:central-consumer-test --cid-version=1 --raw-leaves=false --quieter \
             /tmp/unixfs/root/"préface 世界.txt"
+        printf "%s\n" "This directory fixture must be hashed without storing its block." >/tmp/unixfs/missing
+        ipfs add --api-auth bearer:central-consumer-test --cid-version=1 --raw-leaves=false --quieter --only-hash \
+            /tmp/unixfs/missing
     ' >"$output/cids"
     mapfile -t cids <"$output/cids"
-    samples=(root empty nested file)
+    samples=(root empty nested file missing)
     test "${#cids[@]}" = "${#samples[@]}"
     for index in "${!samples[@]}"; do
         sample=${samples[index]}
         cid=${cids[index]}
         printf '%s\n' "$cid" >"$output/$sample.cid"
-        if [[ "$sample" == file ]]; then
+        if [[ "$sample" == file || "$sample" == missing ]]; then
             continue
         fi
         docker run --rm --network "$network" --entrypoint ipfs \

@@ -19,7 +19,6 @@ import io.quarkiverse.ipfs.runtime.KuboClient.DirectoryEntry;
 @Singleton
 class KuboDirectoryCheck implements KuboSmokeTest.DirectoryCheck {
     private static final Path FIXTURE = Path.of("/directories");
-    private static final String MISSING = "bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku";
 
     @Inject
     KuboClient kubo;
@@ -58,7 +57,7 @@ class KuboDirectoryCheck implements KuboSmokeTest.DirectoryCheck {
         }
         expectFailure(kubo.listDirectory("invalid-cid"), IllegalArgumentException.class);
         expectFailure(kubo.listDirectory(cid("file")), IllegalArgumentException.class);
-        expectFailure(kubo.listDirectory(MISSING), NoSuchElementException.class);
+        expectFailure(kubo.listDirectory(cid("missing")), NoSuchElementException.class);
         System.out.println("Kubo directory listing rejected invalid, file, and missing CIDs.");
     }
 
