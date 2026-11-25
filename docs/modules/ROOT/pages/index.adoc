@@ -82,6 +82,7 @@ An in-progress write can finish later if the destination ignores interruption. T
 Call `KuboClient.addFile(input, pin)` to import one UnixFS file with the Kubo add RPC and return its root CID.
 The caller closes the input stream. Set `pin` to choose whether Kubo retains the imported file during garbage collection.
 The timeout covers the request body and response. Cancellation or timeout can leave data on the Kubo node.
+Both file operations check for an `X-Stream-Error` trailer before reporting success. A late server error fails the future even after the client receives the CID or writes every advertised byte.
 Grant the configured bearer token access to `/api/v0/add` for uploads.
 
 == Storage and identity

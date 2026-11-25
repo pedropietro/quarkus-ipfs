@@ -88,7 +88,7 @@ public class KuboResource {
             outcome = switch (failure.getCause()) {
                 case KuboClient.KuboRequestException error -> "http:" + error.statusCode();
                 case TimeoutException ignored -> "timeout";
-                case UncheckedIOException error -> "io-error";
+                case UncheckedIOException error -> streamError(error);
                 default -> throw failure;
             };
         }
@@ -127,11 +127,16 @@ public class KuboResource {
         } catch (CompletionException failure) {
             outcome = switch (failure.getCause()) {
                 case TimeoutException ignored -> "timeout";
-                case UncheckedIOException error -> error.getCause() == output.writeFailure ? "destination-error" : "io-error";
+                case UncheckedIOException error ->
+                    error.getCause() == output.writeFailure ? "destination-error" : streamError(error);
                 default -> throw failure;
             };
         }
         return outcome + ":" + output.bytes + ":" + output.closed + ":" + !output.release.isDone();
+    }
+
+    private static String streamError(UncheckedIOException error) {
+        return error.getCause().getMessage().contains("X-Stream-Error") ? "trailer-error" : "io-error";
     }
 
     private static final class TrackingDestination extends OutputStream {
