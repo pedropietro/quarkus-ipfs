@@ -12,7 +12,7 @@ Add this dependency under `<dependencies>` in your application's `pom.xml`.
 <dependency>
     <groupId>io.github.pedropietro</groupId>
     <artifactId>quarkus-ipfs</artifactId>
-    <version>0.10.0</version>
+    <version>0.11.0</version>
 </dependency>
 ```
 
@@ -165,7 +165,7 @@ It checks publication and resolution in both directions, including a V2-only rec
 
 ```sh
 bash integration-tests/src/test/scripts/kubo-ipns.sh jvm integration-tests/target/quarkus-app
-bash integration-tests/src/test/scripts/kubo-ipns.sh native integration-tests/target/quarkus-ipfs-integration-tests-0.10.0-runner
+bash integration-tests/src/test/scripts/kubo-ipns.sh native integration-tests/target/quarkus-ipfs-integration-tests-0.11.0-runner
 ```
 
 ### Verify UnixFS with Kubo
