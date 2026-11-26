@@ -68,9 +68,23 @@ public class DagService {
 
     /** Return entry names in the order encoded in the directory. */
     public CompletableFuture<List<String>> listDirectory(String dirCid) {
+        return listDirectoryEntries(dirCid).thenApply(entries -> entries.stream().map(DirectoryEntry::name).toList());
+    }
+
+    /** A direct UnixFS directory entry with its linked CID. */
+    public record DirectoryEntry(String name, String cid) {
+    }
+
+    /**
+     * List the direct entries of a UnixFS DAG-PB directory in its encoded order.
+     * The returned list is immutable and the child blocks do not need to be fetched.
+     */
+    public CompletableFuture<List<DirectoryEntry>> listDirectoryEntries(String dirCid) {
         return CompletableFuture.completedFuture(dirCid)
                 .thenCompose(cid -> dagBytes(Cid.decode(cid)))
-                .thenApplyAsync(data -> UnixFs.decode(data).directoryNames(), executor);
+                .thenApplyAsync(data -> UnixFs.decode(data).directoryLinks().stream()
+                        .map(link -> new DirectoryEntry(link.name().toStringUtf8(), link.cid().toString()))
+                        .toList(), executor);
     }
 
     private final class FileImport {

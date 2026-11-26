@@ -183,15 +183,14 @@ final class UnixFs {
             return blockSizes;
         }
 
-        List<String> directoryNames() {
+        List<Link> directoryLinks() {
             if (type != DIRECTORY || isLegacyFile() || links.stream().anyMatch(link -> link.name().isEmpty())) {
                 throw new IllegalArgumentException("Expected a UnixFS directory");
             }
-            List<String> names = links.stream().map(link -> link.name().toStringUtf8()).toList();
-            if (names.size() != names.stream().distinct().count()) {
+            if (links.size() != links.stream().map(link -> link.name().toStringUtf8()).distinct().count()) {
                 throw new IllegalArgumentException("Duplicate UnixFS directory entry");
             }
-            return names;
+            return links;
         }
 
         private boolean isLegacyFile() {

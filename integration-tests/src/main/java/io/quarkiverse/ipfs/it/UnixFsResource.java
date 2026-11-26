@@ -4,6 +4,7 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.LinkedHashMap;
 import java.util.concurrent.CompletionStage;
+import java.util.stream.Collectors;
 
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
@@ -73,6 +74,31 @@ public class UnixFsResource {
         entries.put(reverse ? "payload.bin" : "cópia.bin", cid);
         entries.put(reverse ? "cópia.bin" : "payload.bin", cid);
         return dag.makeDirectory(entries);
+    }
+
+    /** Create a test directory from lines containing a CID followed by the entry name. */
+    @POST
+    @Path("/directory")
+    @Consumes(MediaType.TEXT_PLAIN)
+    @Produces(MediaType.TEXT_PLAIN)
+    public CompletionStage<String> makeDirectory(String listing) {
+        var entries = new LinkedHashMap<String, String>();
+        if (listing != null) {
+            for (String line : listing.lines().toList()) {
+                String[] fields = line.split(" ", 2);
+                entries.put(fields[1], fields[0]);
+            }
+        }
+        return dag.makeDirectory(entries);
+    }
+
+    @GET
+    @Path("/directory/{cid}/entries")
+    @Produces(MediaType.TEXT_PLAIN)
+    public CompletionStage<String> directoryEntries(@PathParam("cid") String cid) {
+        return dag.listDirectoryEntries(cid).thenApply(entries -> entries.stream()
+                .map(entry -> entry.cid() + " " + entry.name())
+                .collect(Collectors.joining("\n")));
     }
 
     @GET

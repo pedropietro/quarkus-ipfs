@@ -47,13 +47,37 @@ request() {
     fi
 }
 
+make_directory() {
+    request -H 'Content-Type: text/plain; charset=UTF-8' --data-binary @- "$QUARKUS_URL/unixfs/directory"
+}
+
+compare_directory() {
+    local producer=$1 sample=$2 cid=$3
+    kubo ls --size=false --resolve-type=false "/ipfs/$cid" >"$work/cli-list"
+    request "$QUARKUS_URL/unixfs/directory/$cid/entries" >"$work/api-list"
+    if [[ -s "$work/api-list" ]]; then
+        printf '\n' >>"$work/api-list"
+    fi
+    diff -u "$work/cli-list" "$work/api-list"
+    test "$(request "$QUARKUS_URL/unixfs/directory/$cid")" = "$(cut -d' ' -f2- "$work/cli-list")"
+    case "$sample" in
+        root) grep -Fq ' préface 世界.txt' "$work/cli-list" ;;
+        empty) test ! -s "$work/cli-list" ;;
+        nested) grep -Fq ' ação.txt' "$work/cli-list" ;;
+    esac
+    printf '%s %s directory: DagService names and CIDs matched ipfs ls in order.\n' "$producer" "$sample"
+}
+
 # Distinct payloads keep the two content-addressed block sets independent.
 dd if=/dev/urandom of="$work/quarkus.bin" bs=262144 count=175 status=none
 dd if=/dev/urandom of="$work/kubo.bin" bs=524529 count=1 status=none
 
 quarkus_file=$(request --max-time 120 -X POST -H 'Content-Type: application/octet-stream' --upload-file - \
     "$QUARKUS_URL/unixfs/file/stream" <"$work/quarkus.bin")
-quarkus_dir=$(request -X POST "$QUARKUS_URL/unixfs/directory/$quarkus_file")
+quarkus_empty=$(make_directory </dev/null)
+quarkus_nested=$(printf '%s ação.txt\n' "$quarkus_file" | make_directory)
+quarkus_dir=$(printf '%s payload.bin\n%s empty\n%s nested\n%s préface 世界.txt\n' \
+    "$quarkus_file" "$quarkus_empty" "$quarkus_nested" "$quarkus_file" | make_directory)
 quarkus_blocks=$(request "$QUARKUS_URL/ipfs/block/list" | tr -d '[] ' | tr ',' '\n')
 while IFS= read -r cid; do
     case "$cid" in
@@ -73,8 +97,22 @@ kubo cat "/ipfs/$quarkus_dir/payload.bin" >"$work/read-by-kubo-dir.bin"
 cmp "$work/quarkus.bin" "$work/read-by-kubo-dir.bin"
 printf 'Quarkus -> Kubo: nested file and directory entry matched.\n'
 
-kubo_dir=$(kubo add -Q -w --pin=false --cid-version=1 --raw-leaves=false --max-file-links=2 --stdin-name=payload.bin <"$work/kubo.bin")
+compare_directory Nabu root "$quarkus_dir"
+compare_directory Nabu empty "$quarkus_empty"
+compare_directory Nabu nested "$quarkus_nested"
+
+docker exec "$KUBO_CONTAINER" mkdir -p /tmp/quarkus-unixfs/root/empty /tmp/quarkus-unixfs/root/nested
+docker exec -i "$KUBO_CONTAINER" sh -ec '
+    cd /tmp/quarkus-unixfs/root
+    cat >payload.bin
+    printf unicode >"préface 世界.txt"
+    printf nested >"nested/ação.txt"
+' <"$work/kubo.bin"
+kubo_dir=$(kubo add -Q --recursive --empty-dirs --pin=false --cid-version=1 --raw-leaves=false \
+    --max-file-links=2 /tmp/quarkus-unixfs/root)
 kubo_file=$(kubo resolve "/ipfs/$kubo_dir/payload.bin")
+kubo_empty=$(kubo resolve "/ipfs/$kubo_dir/empty")
+kubo_nested=$(kubo resolve "/ipfs/$kubo_dir/nested")
 kubo_blocks=$(kubo refs -r -u "/ipfs/$kubo_dir")
 while IFS= read -r cid; do
     stored=$(kubo block get "$cid" </dev/null | request -H 'Content-Type: application/octet-stream' \
@@ -82,7 +120,9 @@ while IFS= read -r cid; do
     test "$stored" = "$cid"
 done <<<"$kubo_dir"$'\n'"$kubo_blocks"
 
-test "$(request "$QUARKUS_URL/unixfs/directory/$kubo_dir")" = 'payload.bin'
+compare_directory Kubo root "$kubo_dir"
+compare_directory Kubo empty "${kubo_empty#/ipfs/}"
+compare_directory Kubo nested "${kubo_nested#/ipfs/}"
 request "$QUARKUS_URL/unixfs/file/${kubo_file#/ipfs/}" >"$work/read-by-quarkus.bin"
 cmp "$work/kubo.bin" "$work/read-by-quarkus.bin"
 request "$QUARKUS_URL/unixfs/file/${kubo_file#/ipfs/}/stream" >"$work/streamed-by-quarkus.bin"
