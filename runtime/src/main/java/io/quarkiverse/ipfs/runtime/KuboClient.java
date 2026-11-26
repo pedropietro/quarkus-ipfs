@@ -219,12 +219,17 @@ public class KuboClient {
 
     /**
      * List the direct entries of a UnixFS directory by CID. The returned list is immutable.
-     * The Kubo token needs access to both {@code files/stat} and {@code ls}. Each RPC uses the normal request timeout.
+     * The Kubo token needs access to both {@code files/stat} and {@code ls}. The configured timeout covers both RPCs.
+     * Cancellation aborts the current RPC and skips any remaining RPC.
      * An invalid CID or a non-directory fails with {@link IllegalArgumentException}, a missing CID with
      * {@link NoSuchElementException}, and other HTTP errors with {@link KuboRequestException}.
      * Malformed responses or listings larger than 1 MiB fail with {@link UncheckedIOException}.
      */
     public CompletableFuture<List<DirectoryEntry>> listDirectory(String cidString) {
+        return metrics.record(KuboMetrics.Operation.LIST_DIRECTORY, metrics.start(), readDirectory(cidString));
+    }
+
+    private CompletableFuture<List<DirectoryEntry>> readDirectory(String cidString) {
         Cid cid;
         try {
             cid = Cid.decode(cidString);
@@ -233,15 +238,15 @@ public class KuboClient {
         }
         // Kubo ls also lists raw DAG links for a file, so confirm the root type before interpreting its entries.
         String stat = "files/stat?arg=" + URLEncoder.encode("/ipfs/" + cid, UTF_8) + "&enc=json";
-        return transfer(stat, (request, result) -> {
-            var metadata = directoryResponse(request, "files/stat", cid, 4096);
+        String ls = "ls?arg=" + URLEncoder.encode(cid.toString(), UTF_8) + "&size=false&resolve-type=false&enc=json";
+        return transfer(exchange -> {
+            var metadata = exchange.request(stat, request -> directoryResponse(request, "files/stat", cid, 4096));
             if (!"directory".equals(jsonString(metadata, "Type"))) {
                 throw new IllegalArgumentException("Expected a UnixFS directory");
             }
-            return null;
-        }).thenCompose(ignored -> transfer(
-                "ls?arg=" + URLEncoder.encode(cid.toString(), UTF_8) + "&size=false&resolve-type=false&enc=json",
-                (request, result) -> directoryEntries(directoryResponse(request, "ls", cid, MAX_DIRECTORY_RESPONSE_BYTES))));
+            return exchange.request(ls,
+                    request -> directoryEntries(directoryResponse(request, "ls", cid, MAX_DIRECTORY_RESPONSE_BYTES)));
+        });
     }
 
     private static JsonObject directoryResponse(HttpClientRequest request, String operation, Cid cid, int limit)
@@ -343,8 +348,8 @@ public class KuboClient {
             return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid IPFS CID", failure));
         }
 
-        return transfer("cat?arg=" + URLEncoder.encode(cid.toString(), UTF_8),
-                (request, result) -> copyFile(cid, output, request, result));
+        return transfer(exchange -> exchange.request("cat?arg=" + URLEncoder.encode(cid.toString(), UTF_8),
+                request -> copyFile(cid, output, request, exchange.result)));
     }
 
     /**
@@ -358,34 +363,26 @@ public class KuboClient {
     public CompletableFuture<String> addFile(InputStream input, boolean pin) {
         Objects.requireNonNull(input, "input");
         return metrics.record(KuboMetrics.Operation.ADD, metrics.start(),
-                transfer("add?cid-version=1&pin=" + pin + "&progress=false&enc=json",
-                        (request, result) -> uploadFile(input, request, result)));
+                transfer(exchange -> exchange.request("add?cid-version=1&pin=" + pin + "&progress=false&enc=json",
+                        request -> uploadFile(input, request, exchange.result))));
     }
 
     @FunctionalInterface
-    private interface StreamTransfer<T> {
-        T run(HttpClientRequest request, CompletableFuture<T> result) throws IOException, InterruptedException;
+    private interface StreamOperation<T> {
+        T run(StreamExchange<T> exchange) throws IOException, InterruptedException;
     }
 
-    private <T> CompletableFuture<T> transfer(String path, StreamTransfer<T> action) {
-        var result = new CompletableFuture<T>();
-        var opened = new CompletableFuture<HttpClientRequest>();
+    @FunctionalInterface
+    private interface RequestAction<T> {
+        T run(HttpClientRequest request) throws IOException, InterruptedException;
+    }
+
+    private <T> CompletableFuture<T> transfer(StreamOperation<T> action) {
+        var exchange = new StreamExchange<T>();
+        var result = exchange.result.orTimeout(timeout.toNanos(), TimeUnit.NANOSECONDS);
         var worker = executor.submit(() -> {
             try {
-                var options = new RequestOptions().setAbsoluteURI(rpcBase + path)
-                        .setMethod(HttpMethod.POST).setFollowRedirects(false);
-                bearerToken.ifPresent(token -> options.addHeader("Authorization", "Bearer " + token));
-                T value;
-                checkActive(result);
-                var transport = acquireTransport();
-                try {
-                    var request = await(transport.streams.request(options).onSuccess(opened::complete));
-                    checkActive(result);
-                    value = action.run(request, result);
-                } finally {
-                    releaseTransport(transport);
-                }
-                result.complete(value);
+                result.complete(action.run(exchange));
             } catch (InterruptedException failure) {
                 Thread.currentThread().interrupt();
                 result.completeExceptionally(failure);
@@ -395,15 +392,46 @@ public class KuboClient {
                 result.completeExceptionally(failure);
             }
         });
-        result.orTimeout(timeout.toNanos(), TimeUnit.NANOSECONDS).whenComplete((value, failure) -> {
+        result.whenComplete((value, failure) -> {
             if (failure != null) {
-                opened.thenAccept(HttpClientRequest::reset);
+                exchange.abort();
                 if (failure instanceof TimeoutException || result.isCancelled()) {
                     worker.cancel(true);
                 }
             }
         });
         return result;
+    }
+
+    private final class StreamExchange<T> {
+        private final CompletableFuture<T> result = new CompletableFuture<>();
+        private volatile CompletableFuture<HttpClientRequest> activeRequest;
+
+        private <R> R request(String path, RequestAction<R> action) throws IOException, InterruptedException {
+            var options = new RequestOptions().setAbsoluteURI(rpcBase + path)
+                    .setMethod(HttpMethod.POST).setFollowRedirects(false);
+            bearerToken.ifPresent(token -> options.addHeader("Authorization", "Bearer " + token));
+            var opened = new CompletableFuture<HttpClientRequest>();
+            activeRequest = opened;
+            checkActive(result);
+            var transport = acquireTransport();
+            try {
+                var request = await(transport.streams.request(options).onSuccess(opened::complete));
+                checkActive(result);
+                R value = action.run(request);
+                activeRequest = null;
+                return value;
+            } finally {
+                releaseTransport(transport);
+            }
+        }
+
+        private void abort() {
+            var opened = activeRequest;
+            if (opened != null) {
+                opened.thenAccept(HttpClientRequest::reset);
+            }
+        }
     }
 
     private HttpRequest request(String path) {

@@ -43,6 +43,12 @@ if [[ "$scenario" == kubo-https ]]; then
         rotation_mode=manual
     fi
 fi
+directory_policy=false
+if [[ "$scenario" == kubo-https || "$metrics" != none ]]; then
+    if [[ "$reactor" == true || ( "$ipfs_version" != 0.[0-9].* && "$ipfs_version" != 0.10.* ) ]]; then
+        directory_policy=true
+    fi
+fi
 package_args=()
 case "$mode" in
     jvm) ;;
@@ -86,6 +92,9 @@ elif [[ "$scenario" != block ]]; then
     fi
     if [[ "$directory_listing" == true ]]; then
         cp -- "$fixture/kubo/KuboDirectoryCheck.java" "$work/src/main/java/org/acme/"
+    fi
+    if [[ "$directory_policy" == true ]]; then
+        cp -- "$fixture/kubo/KuboDirectoryPolicyCheck.java" "$work/src/main/java/org/acme/"
     fi
     if [[ "$rotation_mode" == automatic ]]; then
         package_args+=(-Pkubo-readiness)

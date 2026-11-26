@@ -19,7 +19,8 @@ public final class KuboMetrics {
     enum Operation {
         BLOCK_GET,
         CAT,
-        ADD
+        ADD,
+        LIST_DIRECTORY
     }
 
     private enum Outcome {

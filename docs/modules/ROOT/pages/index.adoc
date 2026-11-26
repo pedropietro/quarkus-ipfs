@@ -58,7 +58,8 @@ IPNS counters cover `IpnsService.publish` and `resolve`. A publication that succ
 Prometheus exposes these embedded-node meters as `ipfs_peers_connected` and `ipfs_operations_total`.
 
 The Kubo timer is also available when the embedded node is disabled.
-Its `operation` tag is `block_get`, `cat`, or `add`.
+Its `operation` tag is `block_get`, `cat`, `add`, or `list_directory`.
+A directory listing records one duration and outcome for the complete call.
 Its `outcome` tag is `success`, `http_error`, `timeout`, `cancelled`, `stream_error` (late `X-Stream-Error` trailer), or `failure` (for example, a TLS or local I/O error).
 Prometheus exposes the count and cumulative duration as `ipfs_kubo_operation_duration_seconds_count` and `ipfs_kubo_operation_duration_seconds_sum`.
 
@@ -109,6 +110,7 @@ Both file operations check for an `X-Stream-Error` trailer before reporting succ
 Grant the configured bearer token access to `/api/v0/add` for uploads.
 
 Call `KuboClient.listDirectory(cid)` for an immutable list of direct UnixFS directory entries, each with a name and CID in Kubo's order.
+The configured timeout covers both `files/stat` and `ls`. Cancelling the future aborts the active RPC and skips any remaining RPC.
 To list a nested directory, pass the CID of its entry to the same method.
 Grant the token access to `/api/v0/files/stat` and `/api/v0/ls`.
 The client rejects file CIDs and listing responses larger than 1 MiB.
