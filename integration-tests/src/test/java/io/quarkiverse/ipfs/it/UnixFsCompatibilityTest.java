@@ -20,6 +20,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.concurrent.CompletionException;
 
 import jakarta.inject.Inject;
@@ -31,6 +32,7 @@ import com.google.protobuf.CodedInputStream;
 import io.ipfs.cid.Cid;
 import io.quarkiverse.ipfs.runtime.BlockService;
 import io.quarkiverse.ipfs.runtime.DagService;
+import io.quarkiverse.ipfs.runtime.DagService.DirectoryEntry;
 import io.quarkus.test.junit.QuarkusTest;
 
 @QuarkusTest
@@ -60,8 +62,8 @@ class UnixFsCompatibilityTest {
     @Test
     void readsIdentifiableLegacyFileAndDirectoryByTheirExistingCids() {
         byte[] bytes = UnixFsResourceTest.contents(CHUNK_SIZE + 123);
-        blocks.put(Arrays.copyOfRange(bytes, 0, CHUNK_SIZE), Cid.Codec.Raw).join();
-        blocks.put(Arrays.copyOfRange(bytes, CHUNK_SIZE, bytes.length), Cid.Codec.Raw).join();
+        String first = blocks.put(Arrays.copyOfRange(bytes, 0, CHUNK_SIZE), Cid.Codec.Raw).join().toString();
+        String last = blocks.put(Arrays.copyOfRange(bytes, CHUNK_SIZE, bytes.length), Cid.Codec.Raw).join().toString();
 
         assertEquals(LEGACY_FILE, storeDag(LEGACY_FILE_BLOCK));
         assertEquals(LEGACY_DIRECTORY,
@@ -72,8 +74,26 @@ class UnixFsCompatibilityTest {
         assertEquals((long) bytes.length, dag.writeFile(LEGACY_FILE, streamed).join());
         assertArrayEquals(bytes, streamed.toByteArray());
         assertEquals(List.of("z.bin", "a.bin"), dag.listDirectory(LEGACY_DIRECTORY).join());
+        var entries = dag.listDirectoryEntries(LEGACY_DIRECTORY).join();
+        assertEquals(List.of(new DirectoryEntry("z.bin", first), new DirectoryEntry("a.bin", last)), entries);
+        assertThrows(UnsupportedOperationException.class, () -> entries.removeFirst());
         assertThrows(CompletionException.class, () -> dag.getFile(LEGACY_DIRECTORY).join());
         assertThrows(CompletionException.class, () -> dag.listDirectory(LEGACY_FILE).join());
+        assertInstanceOf(IllegalArgumentException.class, directoryFailure(LEGACY_FILE));
+        assertInstanceOf(IllegalArgumentException.class, directoryFailure(first));
+    }
+
+    @Test
+    void rejectsAnInvalidOrMissingDirectoryCid() {
+        assertInstanceOf(IllegalArgumentException.class, directoryFailure("invalid-cid"));
+        String missing = blocks.put("missing directory fixture".getBytes(StandardCharsets.UTF_8), Cid.Codec.DagProtobuf)
+                .join().toString();
+        blocks.remove(missing).join();
+        assertInstanceOf(NoSuchElementException.class, directoryFailure(missing));
+    }
+
+    private Throwable directoryFailure(String cid) {
+        return assertThrows(CompletionException.class, () -> dag.listDirectoryEntries(cid).join()).getCause();
     }
 
     @Test

@@ -33,8 +33,8 @@ public class UnixFsResourceTest {
     public void readsLegacyFileAndDirectoryByTheirOriginalCids() {
         int chunkSize = 256 * 1024;
         byte[] bytes = contents(chunkSize + 123);
-        addFile(Arrays.copyOfRange(bytes, 0, chunkSize));
-        addFile(Arrays.copyOfRange(bytes, chunkSize, bytes.length));
+        String first = addFile(Arrays.copyOfRange(bytes, 0, chunkSize));
+        String last = addFile(Arrays.copyOfRange(bytes, chunkSize, bytes.length));
         String file = UnixFsCompatibilityTest.LEGACY_FILE;
         String directory = UnixFsCompatibilityTest.LEGACY_DIRECTORY;
         putLegacyBlock(file, UnixFsCompatibilityTest.LEGACY_FILE_BLOCK);
@@ -45,6 +45,8 @@ public class UnixFsResourceTest {
         assertArrayEquals(bytes,
                 given().get("/unixfs/file/{cid}/stream", file).then().statusCode(200).extract().asByteArray());
         given().get("/unixfs/directory/{cid}", directory).then().statusCode(200).body(is("z.bin\na.bin"));
+        given().get("/unixfs/directory/{cid}/entries", directory).then().statusCode(200)
+                .body(is(first + " z.bin\n" + last + " a.bin"));
     }
 
     private static void putLegacyBlock(String cid, String block) {

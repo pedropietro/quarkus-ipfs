@@ -15,6 +15,9 @@ The README includes a complete REST resource that injects `BlockService`, writes
 
 Use `DagService` to add files, read a file by its root CID, and create or list named directory entries.
 New UnixFS directories have a deterministic link order.
+`listDirectory(cid)` returns the names in the directory's encoded order.
+`listDirectoryEntries(cid)` returns an immutable list of direct entries with their names and linked CIDs in that same order.
+Use a child directory's CID to list its entries.
 The extension writes 256 KiB raw leaves and limits each newly imported file node to 174 ordered links. Larger imports use nested file nodes.
 Files within the limit keep the previous encoding. Re-importing larger files can yield a different root CID, and existing flat roots remain readable.
 The extension reads raw files and DAG-PB UnixFS files, including inline data and nested file nodes.
@@ -23,7 +26,7 @@ Use `writeFile(cid, output)` to write the file to an `OutputStream` in block ord
 Keep the stream open until the future completes and close or flush it in the caller.
 If reading or writing fails, the destination may already contain part of the file.
 With FILE storage, the application can read files larger than the heap without retaining the whole payload in memory.
-Keep the blocks for existing CIDs. The extension recognizes the multiblock file layout produced by versions through 0.2.0 and reads the names in directories written by those versions.
+Keep the blocks for existing CIDs. The extension recognizes the multiblock file layout produced by versions through 0.2.0 and reads the names and linked CIDs in directories written by those versions.
 The legacy file format remains readable by Quarkus IPFS. For a standard UnixFS file CID, import the file again and use the new CID.
 
 == IPNS names
