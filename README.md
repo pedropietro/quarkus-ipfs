@@ -1,6 +1,39 @@
 # Quarkus IPFS
 
+**English** · [Português (Brasil)](README.pt-BR.md)
+
+<p>
+  <a href="https://github.com/Peergos/nabu/blob/d2454c9af6e05e15d703ef394687857aab2432a9/README.md"><img src="https://raw.githubusercontent.com/Peergos/nabu/d2454c9af6e05e15d703ef394687857aab2432a9/assets/nabu-logo.png" alt="Nabu" width="112"></a>
+  <a href="https://quarkus.io/">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://design.jboss.org/quarkus/logo/final/PNG/quarkus_logo_horizontal_rgb_1280px_reverse.png">
+      <img src="https://design.jboss.org/quarkus/logo/final/PNG/quarkus_logo_horizontal_rgb_1280px_default.png" alt="Quarkus" width="112">
+    </picture>
+  </a>
+  <a href="https://github.com/ipfs-inactive/logo/blob/26a8332e2b1dc7e711561bc03f2e39e0c99e76f6/index.md"><img src="https://raw.githubusercontent.com/ipfs-inactive/logo/26a8332e2b1dc7e711561bc03f2e39e0c99e76f6/vector/ipfs-logo-vector-ice-text.svg" alt="IPFS" width="112"></a>
+</p>
+
+[Nabu logo](https://github.com/Peergos/nabu/blob/d2454c9af6e05e15d703ef394687857aab2432a9/README.md) · [Quarkus logo](https://github.com/quarkusio/quarkus#readme) · [IPFS logo](https://github.com/ipfs-inactive/logo/blob/26a8332e2b1dc7e711561bc03f2e39e0c99e76f6/index.md) ([CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/))
+
 Quarkus IPFS embeds a Peergos Nabu node in a Quarkus application. Inject CDI services to store and retrieve blocks by CID, manage peers, and work with DAGs and IPNS. The extension is experimental.
+
+## Embedded node architecture
+
+This diagram follows the embedded Nabu node through Quarkus build and startup. [Original implementation plan](docs/designs/quarkus-ipfs.md#arquitetura-e-contratos)
+
+```mermaid
+flowchart LR
+    D["deployment — build steps, build-time configuration and native metadata"]
+    R["runtime — IpfsRecorder at RUNTIME_INIT"]
+    A["Application — CDI beans"]
+    N["Nabu — IPFS node and Peer ID"]
+    S["RAM or FILE blockstore"]
+    D -->|registers| R
+    R -->|starts and stops| N
+    R -->|selects| S
+    A --> N
+    N --> S
+```
 
 ## Quick start
 
